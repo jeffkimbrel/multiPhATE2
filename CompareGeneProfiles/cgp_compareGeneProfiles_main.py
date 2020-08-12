@@ -6,7 +6,7 @@
 # compareGeneProfiles_main.py
 #
 # Programmer:  Carol L. Ecale Zhou
-# Last update: 16 May 2020
+# Last update: 05 June 2020
 #
 # This program compares the gene calls from 2 genomes and identifies genes that 
 # match, are similar, or are unique in each genome. This code is a re-write of
@@ -87,8 +87,8 @@ PHATE_EMBOSS_HOME = os.environ["PHATE_EMBOSS_HOME"]
 
 # The following switches are for the benefit of code development, primarily.
 
-#DEBUG = True
 DEBUG = False
+#DEBUG = True
 
 BLAST_ON = True    # controls whether blast is performed (used during development to skip lengthy blast for testing)
 #BLAST_ON = False
@@ -202,8 +202,8 @@ parameters = { # data structure for input to class methods; defaults as indicate
 "domainMatchCoverage"                    : 45,
 "domainSimilarityIdentity"               : 60,
 "domainSimilarityCoverage"               : 45,
-"paralogMatchIdentity"                   : 20,  # TESTING
-"paralogMatchCoverage"                   : 20,  #
+"paralogMatchIdentity"                   : 60,  
+"paralogMatchCoverage"                   : 60,  
 "paralogSimilarityIdentity"              : 60,
 "paralogSimilarityCoverage"              : 75,
 "paralogDomainMatchIdentity"             : 95,
@@ -218,8 +218,8 @@ parameters = { # data structure for input to class methods; defaults as indicate
 "proteinDomainMatchCoverage"             : 45,
 "proteinDomainSimilarityIdentity"        : 60,
 "proteinDomainSimilarityCoverage"        : 45,
-"proteinParalogMatchIdentity"            : 20,  #
-"proteinParalogMatchCoverage"            : 20,  #
+"proteinParalogMatchIdentity"            : 60,  
+"proteinParalogMatchCoverage"            : 60,  
 "proteinParalogSimilarityIdentity"       : 60,
 "proteinParalogSimilarityCoverage"       : 75,
 "proteinParalogDomainMatchIdentity"      : 95,
@@ -689,6 +689,7 @@ def ExtractGeneCalls(genomeX,lines):
         "source"       : "multiPhATE",  #***
         }  
     gene = {  # for passing data to fasta class
+        "contig"         : "",
         "header"         : "",
         "name"           : "",
         "sequence"       : "",
@@ -700,6 +701,7 @@ def ExtractGeneCalls(genomeX,lines):
         "annotationList" : [],
         }
     protein = {  # for passing data to fasta class
+        "contig"         : "",
         "header"         : "",
         "name"           : "",
         "sequence"       : "",
@@ -748,6 +750,7 @@ def ExtractGeneCalls(genomeX,lines):
             gene["end"]            = gff["end"]
             gene["name"]           = "cds" + str(geneCountCDS)
             gene["parentSequence"] = fields[0]  # the contig this gene is on (a shortHeader if from RAST)
+            gene["contig"]         = fields[0]
             gene["sequence"] = genomeX.getSubsequence(gff["start"],gff["end"],gene["parentSequence"])
             if gff["strand"] == '-':  # Reverse complement sequence if on reverse strand
                 #reverseComplement = gene["sequence"].translate(complements)[::-1]
@@ -763,6 +766,7 @@ def ExtractGeneCalls(genomeX,lines):
             newGene.addAnnotation(newAnnotation)
 
             # Transfer data to protein dict
+            protein["contig"]               = gene["contig"]
             protein["order"]                = gene["order"]
             protein["start"]                = gene["start"]
             protein["end"]                  = gene["end"]
@@ -1306,9 +1310,5 @@ call(["cp", paralogFile,  paralogCopy])
 
 if PHATE_PROGRESS:
     print ("cpg_compareGeneProfiles_main says, CompareGeneProfiles completed.")
-
-if DEBUG:
-    print("cgp_compareGeneProfiles_main says, DEBUG: Printing all of genome1")
-    genome1.printAll()
 
 #######################################################################################################

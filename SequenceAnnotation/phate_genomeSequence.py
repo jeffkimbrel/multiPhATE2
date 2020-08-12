@@ -3,7 +3,7 @@
 #
 # Programmer: Carol L. Ecale Zhou
 #
-# Most recent update: 10 April 2020
+# Most recent update: 16 June 2020
 # 
 # Module comprising data structures for organizing genome information
 # Note:  EMBOSS messes with fasta headers; therefore, I am putting minimal info in the header and using only '/'
@@ -183,6 +183,7 @@ class genome(object):
                 gc = geneCallInfo['primaryCalls'].lower()
                 match_phanotate = re.search('phanotate',gc)
                 match_PHANOTATE = re.search('PHANOTATE',gc)
+                match_Phanotate = re.search('Phanotate',gc)
                 match_rast      = re.search('rast',gc)
                 match_glimmer2  = re.search('glimmer2',gc)
                 match_glimmer3  = re.search('glimmer3',gc)
@@ -190,7 +191,8 @@ class genome(object):
                 match_geneMarkS = re.search('genemarks',gc)
                 match_consensus = re.search('consensus',gc)
                 match_superset  = re.search('superset',gc)
-                if match_phanotate or match_PHANOTATE:
+                match_custom    = re.search('custom',gc)
+                if match_phanotate or match_PHANOTATE or match_Phanotate:
                     geneCaller = 'phanotate'
                 elif match_rast:
                     geneCaller = 'rast'
@@ -206,6 +208,8 @@ class genome(object):
                     geneCaller = 'consensus'
                 elif match_superset:
                     geneCaller = 'superset'
+                elif match_custom:
+                    geneCaller = 'custom'
             #if 'geneCallFile' in geneCallInfo:
             if 'primaryCallsPathFile' in geneCallInfo:
                 #geneCallFile = geneCallInfo['geneCallFile']
@@ -486,8 +490,8 @@ class genome(object):
     def printGenomeData2file_GFF(self,FILE_HANDLE):
         FILE_HANDLE.write("%s\n" % (GFF_COMMENT))
         if PHATE_MESSAGES == 'True':
-            print("There are", len(self.geneSet.fastaList), "genes, and", len(self.proteinSet.fastaList), "proteins")
-            print("Writing data to GFF file")
+            print("phate_genomeSequence says, There are", len(self.geneSet.fastaList), "genes, and", len(self.proteinSet.fastaList), "proteins")
+            print("phate_genomeSequence says, Writing data to GFF file")
 
         #*** NOTE: The following code assumes that the list of proteins corresponds precisely to
         #*** the list of genes.  Oh, for the want of a pointer!!!

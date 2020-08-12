@@ -1,7 +1,7 @@
-##############################################
+#############################################
 # Module: blastAnalysis.py
 # Programmer:  Carol L. Ecale Zhou
-# Date of last update:  16 May 2020
+# Date of last update:  06 July 2020
 #
 # Module comprising data structures and methods for blasting the genes and proteins
 #    of two genome objects and comparing the gene profiles and the nt and aa levels.
@@ -336,6 +336,7 @@ class homology(object):  # holds comparative information between 2 gene/protein 
             annotations = []  # reset
             seqLength1[seq.header] = len(seq.sequence)
             seqContig1[seq.header] = seq.parentSequence
+
         for seq in seqList2.fastaList:
             aList = list(seq.annotationList)
             for annot in aList:
@@ -352,18 +353,15 @@ class homology(object):  # holds comparative information between 2 gene/protein 
         quickSingular2 = []
         quickLoner2    = [] 
 
-        # Capture mutual Best Hits for Genome 1   #*** CONTINUE HERE
+        # Capture mutual Best Hits for Genome 1   
         for hit in self.mutualBestHits["set1"]:  
             (qLocusTag,qStrand,qStart,qEnd,junk) = hit.queryHeader.split('/') #*** should split to list then pull data by index
             (sLocusTag,sStrand,sStart,sEnd,junk) = hit.subjectHeader.split('/')
-            try:
+            qAnnotations = ""; sAnnotations = ""
+            if hit.queryHeader in seqAnnot1.keys():
                 qAnnotations = seqAnnot1[hit.queryHeader]
+            if hit.subjectHeader in seqAnnot2.keys():
                 sAnnotations = seqAnnot2[hit.subjectHeader]
-            except:
-                print("cgp_blastAnalysis says, WARNING: error in retrieving qAnnotations or sAnnotations")
-                print("  hit.queryHeader is",hit.queryHeader)
-                print("  hit.subjectHeader is",hit.subjectHeader)
-                continue 
             g1segment    = int(hit.queryEnd)   - int(hit.queryStart) + 1
             g2segment    = int(hit.subjectEnd) - int(hit.subjectStart) + 1
             g1length     = seqLength1[hit.queryHeader]
@@ -379,15 +377,11 @@ class homology(object):  # holds comparative information between 2 gene/protein 
         for hit in self.singularHits["set1"]:
             (qLocusTag,qStrand,qStart,qEnd,junk) = hit.queryHeader.split('/')
             (sLocusTag,sStrand,sStart,sEnd,junk) = hit.subjectHeader.split('/')
-            try:
+            qAnnotations = ""; sAnnotations = ""
+            if hit.queryHeader in seqAnnot1.keys():
                 qAnnotations = seqAnnot1[hit.queryHeader]
+            if hit.subjectHeader in seqAnnot2.keys():
                 sAnnotations = seqAnnot2[hit.subjectHeader]
-            except:
-                if PHATE_WARNINGS:
-                    print("cgp_blastAnalysis says, WARNING: error in retrieving qAnnotations or sAnnotations")
-                    print("  hit.queryHeader is",hit.queryHeader)
-                    print("  hit.subjectHeader is",hit.subjectHeader)
-                continue 
             g1segment    = int(hit.queryEnd) - int(hit.queryStart) + 1
             g2segment    = int(hit.subjectEnd) - int(hit.subjectStart) + 1
             g1length     = seqLength1[hit.queryHeader]
@@ -421,15 +415,11 @@ class homology(object):  # holds comparative information between 2 gene/protein 
 
         # Capture singular hits for genome2
         for hit in self.singularHits["set2"]:
-            try:
+            qAnnotations = ""; sAnnotations = ""
+            if hit.queryHeader in seqAnnot1.keys():
                 qAnnotations = seqAnnot1[hit.queryHeader]
+            if hit.subjectHeader in seqAnnot2.keys():
                 sAnnotations = seqAnnot2[hit.subjectHeader]
-            except:
-                if PHATE_WARNINGS:
-                    print("cgp_blastAnalysis says, WARNING: error in retrieving qAnnotations or sAnnotations")
-                    print("  hit.queryHeader is",hit.queryHeader)
-                    print("  hit.subjectHeader is",hit.subjectHeader)
-                continue 
             g1segment    = int(hit.subjectEnd) - int(hit.subjectStart) + 1
             g2segment    = int(hit.queryEnd)   - int(hit.queryStart) + 1
             g1length     = seqLength1[hit.subjectHeader]
@@ -568,27 +558,28 @@ class homology(object):  # holds comparative information between 2 gene/protein 
 ###########################################################################################################
 class paralog(object):  #
     def __init__(self):
-        self.header = ""      # header of paralog's fasta sequence
-        self.blastHit = None  # hit object that links this paralog
+        self.header   = ""      # header of paralog's fasta sequence
+        self.contig   = ""
+        self.blastHit = None    # hit object that links this paralog
         self.coverage = 0.0
 
     def printAll(self):
         print ("Paralogs information:")
-        print ("header:", self.header)
+        print ("header:", self.header," contig:",self.contig)
         print ("blast hit:")
         self.blastHit.printAll()
         print ("coverage:",self.coverage)
 
     def printAll2file(self,FILE_HANDLE):
         FILE_HANDLE.write("%s\n" % ("Paralogs information:"))
-        FILE_HANDLE.write("%s%s%s\n" % ("header:",self.header))
-        FILE_HANDLE.write("%s\n" % ("blast hit:"))
+        FILE_HANDLE.write("%s%s%s%s\n" % ("header:",self.header," contig:",self.contig))
+        FILE_HANDLE.write("%s\n" % ("# blast hit:"))
         self.blastHit.printAll2file(FILE_HANDLE)
         FILE_HANDLE.write("%s%s\n" % ("coverage:",self.coverage))
         
     def printAll2file_tab(self,FILE_HANDLE):
-        FILE_HANDLE.write("%s%s\n" % ("header:",self.header))
-        FILE_HANDLE.write("%s\n" % ("blast hit:"))
+        FILE_HANDLE.write("%s%s%s%s\n" % ("header:",self.header," contig:",self.contig))
+        FILE_HANDLE.write("%s\n" % ("# blast hit:"))
         self.blastHit.printAll2file_tab(FILE_HANDLE)
         FILE_HANDLE.write("%s%s\n" % ("coverage:",self.coverage))
         
@@ -678,16 +669,19 @@ class blast(object):
         for seq in inList1.fastaList:
             qLength = abs(int(seq.start) - int(seq.end))
             for nextHit in inList2.blastHits:  # check if it's a hit of seq against non-self seq
+                seqContig = seq.contig
                 qSpan = abs(int(nextHit.queryStart) - int(nextHit.queryEnd))
                 try:
                     seqCoverage = 100 * (float(qSpan) / float(qLength))
                 except:
                     seqCoverage = 0.0
+                # Identify hit corresponing to current sequence, and exclude hits that are self-self.
                 if seq.header == nextHit.queryHeader and nextHit.queryHeader != nextHit.subjectHeader:
                     if float(nextHit.identity) >= float(identity) and seqCoverage >= coverage: # check hit quality
                         newParalog = copy.deepcopy(self.paralogT) # replicate the paralog template
-                        newParalog.header = nextHit.subjectHeader
+                        newParalog.header   = nextHit.subjectHeader
                         newParalog.coverage = seqCoverage
+                        newParalog.contig   = seqContig
                         newParalog.blastHit = nextHit
                         seq.paralogList.append(newParalog) # add to list of paralogs for this sequence object
                         paralogCount += 1 

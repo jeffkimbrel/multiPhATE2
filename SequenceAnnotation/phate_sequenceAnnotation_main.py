@@ -10,7 +10,7 @@
 #
 # Programmer: CEZhou
 #
-# Latest Update: 11 April 2020
+# Latest Update: 07 August 2020
 # Version 1.5
 #
 ################################################################
@@ -22,9 +22,8 @@ import sys, os, re, string, copy
 import time, datetime
 from subprocess import call
 
-# DEBUG control
-#DEBUG = True
 DEBUG = False 
+#DEBUG = True
 
 # Defaults/Parameters
 PRIMARY_CALLS          = 'phanotate'   # Default; can be configured by user
@@ -89,6 +88,12 @@ REFSEQ_GENE_BASE_DIR          = os.environ["PHATE_REFSEQ_GENE_BASE_DIR"]
 REFSEQ_GENE_BLAST_HOME        = os.environ["PHATE_REFSEQ_GENE_BLAST_HOME"]
 PVOGS_BASE_DIR                = os.environ["PHATE_PVOGS_BASE_DIR"]
 PVOGS_BLAST_HOME              = os.environ["PHATE_PVOGS_BLAST_HOME"]
+VOGS_BASE_DIR                 = os.environ["PHATE_VOGS_BASE_DIR"]
+VOGS_BLAST_HOME               = os.environ["PHATE_VOGS_BLAST_HOME"]
+#VOG_GENE_BASE_DIR             = os.environ["PHATE_VOG_GENE_BASE_DIR"]
+VOG_GENE_BLAST_HOME           = os.environ["PHATE_VOG_GENE_BLAST_HOME"]
+#VOG_PROTEIN_BASE_DIR          = os.environ["PHATE_VOG_PROTEIN_BASE_DIR"]
+VOG_PROTEIN_BLAST_HOME        = os.environ["PHATE_VOG_PROTEIN_BLAST_HOME"]
 PHANTOME_BASE_DIR             = os.environ["PHATE_PHANTOME_BASE_DIR"]
 PHANTOME_BLAST_HOME           = os.environ["PHATE_PHANTOME_BLAST_HOME"]
 PHAGE_ENZYME_BASE_DIR         = os.environ["PHATE_PHAGE_ENZYME_BASE_DIR"]
@@ -105,6 +110,8 @@ UNIPROT_BASE_DIR              = os.environ["PHATE_UNIPROT_BASE_DIR"]
 UNIPROT_BLAST_HOME            = os.environ["PHATE_UNIPROT_BLAST_HOME"]
 NR_BLAST_BASE_DIR             = os.environ["PHATE_NR_BLAST_BASE_DIR"]
 NR_BLAST_HOME                 = os.environ["PHATE_NR_BLAST_HOME"]
+CAZY_BLAST_BASE_DIR           = os.environ["PHATE_CAZY_BASE_DIR"]
+CAZY_BLAST_HOME               = os.environ["PHATE_CAZY_BLAST_HOME"]
 CUSTOM_GENOME_BLAST_HOME      = os.environ["PHATE_CUSTOM_GENOME_BLAST_HOME"]
 CUSTOM_GENE_BLAST_HOME        = os.environ["PHATE_CUSTOM_GENE_BLAST_HOME"]
 CUSTOM_PROTEIN_BLAST_HOME     = os.environ["PHATE_CUSTOM_PROTEIN_BLAST_HOME"]
@@ -115,6 +122,7 @@ NCBI_VIRUS_PROTEIN_HMM_HOME   = os.environ["PHATE_NCBI_VIRUS_PROTEIN_HMM_HOME"]
 REFSEQ_PROTEIN_HMM_HOME       = os.environ["PHATE_REFSEQ_PROTEIN_HMM_HOME"]
 REFSEQ_GENE_HMM_HOME          = os.environ["PHATE_REFSEQ_GENE_HMM_HOME"]
 PVOGS_HMM_HOME                = os.environ["PHATE_PVOGS_HMM_HOME"]
+VOGS_HMM_HOME                 = os.environ["PHATE_VOGS_HMM_HOME"]
 PHANTOME_HMM_HOME             = os.environ["PHATE_PHANTOME_HMM_HOME"]
 PHAGE_ENZYME_HMM_HOME         = os.environ["PHATE_PHAGE_ENZYME_BLAST_HOME"]
 PFAM_HMM_HOME                 = os.environ["PHATE_PFAM_BLAST_HOME"]
@@ -175,6 +183,7 @@ RUN_GENOME_BLAST         = False         # blasting against genome database
 RUN_GENE_BLAST           = False         # blasting against gene database
 RUN_PROTEIN_BLAST        = False         # blasting against any protein database
 BLASTP_SEARCH            = False         # If True, run blastp against fasta blast DB(s)
+BLAST_THREADS            = 1             # Positive integer; assume serial execution unless indicated otherwise
 PHMMER_SEARCH            = False         # if True, run phmmer against fasta blast DB(s)
 JACKHMMER_SEARCH         = False         # if True, run jackhmmer against fasta blast DB(s)
 HMMSCAN                  = False         # Default; can be configured by user ###*** to be deprecated
@@ -186,6 +195,9 @@ NCBI_VIRUS_PROTEIN_BLAST = False
 REFSEQ_PROTEIN_BLAST     = False
 REFSEQ_GENE_BLAST        = False
 PVOGS_BLAST              = False
+VOGS_BLAST               = False  #*** To be deprecated
+VOG_GENE_BLAST           = False
+VOG_PROTEIN_BLAST        = False
 PHANTOME_BLAST           = False
 PHAGE_ENZYME_BLAST       = False
 KEGG_VIRUS_BLAST         = False
@@ -194,6 +206,10 @@ SMART_BLAST              = False
 SWISSPROT_BLAST          = False
 UNIPROT_BLAST            = False
 NR_BLAST                 = False
+CAZY_BLAST               = False
+CUSTOM_GENOME_BLAST      = False
+CUSTOM_GENE_BLAST        = False
+CUSTOM_PROTEIN_BLAST     = False
 # HMM Profiles Databases
 NCBI_VIRUS_GENOME_HMM    = False
 NCBI_VIRUS_PROTEIN_HMM   = False
@@ -201,6 +217,7 @@ REFSEQ_PROTEIN_HMM       = False
 REFSEQ_GENE_HMM          = False
 KEGG_VIRUS_HMM           = False
 PVOGS_HMM                = False
+VOGS_HMM                 = False
 PHANTOME_HMM             = False
 PHAGE_ENZYME_HMM         = False
 SWISSPROT_HMM            = False
@@ -209,6 +226,7 @@ SMART_HMM                = False
 SWISSPROT_HMM            = False
 UNIPROT_HMM              = False
 NR_HMM                   = False
+CUSTOM_HMM               = False
 
 ##### PATTERNS and CONTROL
 
@@ -229,6 +247,7 @@ p_blastpIdentityParam        = re.compile('^-i')   # blastp identity cutoff
 p_blastnIdentityParam        = re.compile('^-j')   # blastn identity cutoff
 p_blastpHitCountParam        = re.compile('^-h')   # blastp top hit count
 p_blastnHitCountParam        = re.compile('^-H')   # blastn top hit count
+p_blastThreadsParam          = re.compile('^-z')   # number of blast threads to execute
 p_translateOnlyParam         = re.compile('^-x')   # if user passes 'true' => get genes, translate, compare, then stop before annotation
 p_blastDatabaseStringParam   = re.compile('^-b')   # string listing database(s) to blast against
 p_blastProgramStringParam    = re.compile('^-B')   # string listing hmm program and database(s) to search against
@@ -236,6 +255,7 @@ p_seqDatabaseStringParam     = re.compile('^-m')   # string listing hmm database
 p_hmmProgramStringParam      = re.compile('^-M')   # string listing hmm program(s) to search sequence databases 
 p_profileDatabaseStringParam = re.compile('^-r')   # string listing hmm profile database(s) to search
 p_profileProgramStringParam  = re.compile('^-R')   # string listing hmm program(s) for searching hmm profile databases
+p_customDatabasePathParam    = re.compile('^-C')   # string listing path/filenames to custom database(s)
 
 # Parts of input strings naming databases to blast or hmm-search against
 
@@ -245,6 +265,9 @@ p_ncbiVirusProtein     = re.compile('ncbiVirusProtein')
 p_refseqProtein        = re.compile('refseqP')             
 p_refseqGene           = re.compile('refseqG')             
 p_pvogs                = re.compile('pvogs')               
+p_vogs                 = re.compile('Vogs')     # *** To be deprecated
+p_vogGene              = re.compile('vogGene')
+p_vogProtein           = re.compile('vogProtein')
 p_phantome             = re.compile('phantome')            
 p_phageEnzyme          = re.compile('phageEnzyme')               
 p_keggVirus            = re.compile('kegg')                
@@ -252,7 +275,11 @@ p_pfam                 = re.compile('pfam')
 p_smart                = re.compile('smart')               
 p_swissprot            = re.compile('swissprot')           
 p_uniprot              = re.compile('uniprot')             
-p_nr                   = re.compile('nr')                  
+p_nr                   = re.compile('nr') 
+p_cazy                 = re.compile('cazy')
+p_customGenome         = re.compile('customGenome')
+p_customGene           = re.compile('customGene')
+p_customProtein        = re.compile('customProtein')
 
 # hmm profiles DBs
 p_ncbiVirusGenomeHmm   = re.compile('ncbiVirusGenomeHmm')  
@@ -260,6 +287,7 @@ p_ncbiVirusProteinHmm  = re.compile('ncbiVirusProteinHmm')
 p_refseqProteinHmm     = re.compile('refseqPhmm')          
 p_refseqGeneHmm        = re.compile('refseqGhmm')          
 p_pvogsHmm             = re.compile('pvogsHmm')            
+p_vogsHmm              = re.compile('VogsHmm')            
 p_phantomeHmm          = re.compile('phantomeHmm')         
 p_phageEnzymeHmm       = re.compile('phageEnzymeHmm')            
 p_keggVirusHmm         = re.compile('keggHmm')             
@@ -268,6 +296,19 @@ p_smartHmm             = re.compile('smartHmm')
 p_swissprotHmm         = re.compile('swissprotHmm')        
 p_uniprotHmm           = re.compile('uniprotHmm')          
 p_nrHmm                = re.compile('nrHmm')  
+p_customHmm            = re.compile('customHmm')
+
+# custom DB Names 
+p_customGenomeDBname   = re.compile('customGenomeDBname:')
+p_customGeneDBname     = re.compile('customGeneDBname:')
+p_customProteinDBname  = re.compile('customProteinDBname:')
+p_customHmmDBname      = re.compile('customHmmDBname:')
+
+# custom DB Paths
+p_customGenomeDBpath   = re.compile('customGenomeDBpath:')
+p_customGeneDBpath     = re.compile('customGeneDBpath:')
+p_customProteinDBpath  = re.compile('customProteinDBpath:')
+p_customHmmDBpath      = re.compile('customHmmDBpath:')
 
 # programs 
 p_blastp               = re.compile('blastp')
@@ -303,6 +344,7 @@ for i in range(0,argCount):
     match_blastnIdentityParam        = re.search(p_blastnIdentityParam,        argList[i])
     match_blastpHitCountParam        = re.search(p_blastpHitCountParam,        argList[i])
     match_blastnHitCountParam        = re.search(p_blastnHitCountParam,        argList[i])
+    match_blastThreadsParam          = re.search(p_blastThreadsParam,          argList[i])
 
     match_blastDatabaseStringParam   = re.search(p_blastDatabaseStringParam,   argList[i]) # blast databases
     match_blastProgramStringParam    = re.search(p_blastProgramStringParam,    argList[i]) # blast programs for blast database search
@@ -310,6 +352,7 @@ for i in range(0,argCount):
     match_hmmProgramStringParam      = re.search(p_hmmProgramStringParam,      argList[i]) # hmm programs for sequence database search
     match_profileDatabaseStringParam = re.search(p_profileDatabaseStringParam, argList[i]) # hmm profile databases
     match_profileProgramStringParam  = re.search(p_profileProgramStringParam,  argList[i]) # hmm programs for hmm profile database search
+    match_customDatabasePathParam    = re.search(p_customDatabasePathParam,    argList[i]) # path/filenames to custom database(s)
 
     ### Capture parameters 
 
@@ -396,6 +439,10 @@ for i in range(0,argCount):
             if int(value) > 0 and int(value) <= int(MAX_BLASTN_HIT_COUNT):
                 blastnHitCount = int(value)
 
+    if match_blastThreadsParam:
+        if i < argCount:
+            blastThreads = int(argList[i+1])
+
     # Blast, Hmm, and Profile database processing
 
     if match_blastDatabaseStringParam: # blast databases to use (blast DBs are seq DBs formatted with makeblastdb)
@@ -406,6 +453,9 @@ for i in range(0,argCount):
             match_refseqProtein    = re.search(p_refseqProtein,value)
             match_refseqGene       = re.search(p_refseqGene,value)
             match_pvogs            = re.search(p_pvogs,value)
+            match_vogs             = re.search(p_vogs,value)
+            match_vogGene          = re.search(p_vogGene,value)
+            match_vogProtein       = re.search(p_vogProtein,value)
             match_phantome         = re.search(p_phantome,value)
             match_phageEnzyme      = re.search(p_phageEnzyme,value)
             match_keggVirus        = re.search(p_keggVirus,value)
@@ -414,6 +464,10 @@ for i in range(0,argCount):
             match_swissprot        = re.search(p_swissprot,value)
             match_uniprot          = re.search(p_uniprot,value)
             match_nr               = re.search(p_nr,value)
+            match_cazy             = re.search(p_cazy,value)
+            match_customGenome     = re.search(p_customGenome,value)
+            match_customGene       = re.search(p_customGene,value)
+            match_customProtein    = re.search(p_customProtein,value)
             if match_ncbiVirusGenome:
                 NCBI_VIRUS_GENOME_BLAST = True
             if match_ncbiVirusProtein:
@@ -424,6 +478,12 @@ for i in range(0,argCount):
                 REFSEQ_GENE_BLAST = True
             if match_pvogs:
                 PVOGS_BLAST = True 
+            if match_vogs:
+                VOGS_BLAST = True 
+            if match_vogGene:
+                VOG_GENE_BLAST = True
+            if match_vogProtein:
+                VOG_PROTEIN_BLAST = True
             if match_phantome:
                 PHANTOME_BLAST = True
             if match_phageEnzyme:
@@ -440,6 +500,14 @@ for i in range(0,argCount):
                 UNIPROT_BLAST = True
             if match_nr:
                 NR_BLAST = True
+            if match_cazy:
+                CAZY_BLAST = True
+            if match_customGenome:
+                CUSTOM_GENOME_BLAST = True
+            if match_customGene:
+                CUSTOM_GENE_BLAST = True
+            if match_customProtein:
+                CUSTOM_PROTEIN_BLAST = True
 
     if match_blastProgramStringParam: # blast programs to run against (protein) blast databases
         if i < argCount:
@@ -456,6 +524,9 @@ for i in range(0,argCount):
             match_refseqProtein    = re.search(p_refseqProtein,value)
             match_refseqGene       = re.search(p_refseqGene,value)
             match_pvogs            = re.search(p_pvogs,value)
+            match_vogs             = re.search(p_vogs,value)
+            match_vogGene          = re.search(p_vogGene,value)
+            match_vogProtein       = re.search(p_vogProtein,value)
             match_phantome         = re.search(p_phantome,value)
             match_phageEnzyme      = re.search(p_phageEnzyme,value)
             match_keggVirus        = re.search(p_keggVirus,value)
@@ -464,6 +535,10 @@ for i in range(0,argCount):
             match_swissprot        = re.search(p_swissprot,value)
             match_uniprot          = re.search(p_uniprot,value)
             match_nr               = re.search(p_nr,value)
+            match_cazy             = re.search(p_cazy,value)
+            match_customGenome     = re.search(p_customGenome,value)
+            match_customGene       = re.search(p_customGene,value)
+            match_customProtein    = re.search(p_customProtein,value)
             if match_ncbiVirusGenome:
                 NCBI_VIRUS_GENOME_BLAST = True
             if match_ncbiVirusProtein:
@@ -474,6 +549,12 @@ for i in range(0,argCount):
                 REFSEQ_GENE_BLAST = True
             if match_pvogs:
                 PVOGS_BLAST = True 
+            if match_vogs:
+                VOGS_BLAST = True 
+            if match_vogGene:
+                VOG_GENE_BLAST = True 
+            if match_vogProtein:
+                VOG_PROTEIN_BLAST = True 
             if match_phantome:
                 PHANTOME_BLAST = True
             if match_phageEnzyme:
@@ -490,6 +571,14 @@ for i in range(0,argCount):
                 UNIPROT_BLAST = True
             if match_nr:
                 NR_BLAST = True
+            if match_cazy:
+                CAZY_BLAST = True
+            if match_customGenome:
+                CUSTOM_GENOME_BLAST = True
+            if match_customGene:
+                CUSTOM_GENE_BLAST = True
+            if match_customProtein:
+                CUSTOM_PROTEIN_BLAST = True
 
     if match_hmmProgramStringParam: # hmm programs for searching sequence databases
         if i < argCount:
@@ -509,6 +598,7 @@ for i in range(0,argCount):
             match_refseqProteinHmm    = re.search(p_refseqProteinHmm,value)
             match_refseqGeneHmm       = re.search(p_refseqGeneHmm,value)
             match_pvogsHmm            = re.search(p_pvogsHmm,value)
+            match_vogsHmm             = re.search(p_vogsHmm,value)
             match_phantomeHmm         = re.search(p_phantomeHmm,value)
             match_phageEnzymeHmm      = re.search(p_phageEnzymeHmm,value)
             match_keggVirusHmm        = re.search(p_keggVirusHmm,value)
@@ -517,6 +607,7 @@ for i in range(0,argCount):
             match_swissprotHmm        = re.search(p_swissprotHmm,value)
             match_uniprotHmm          = re.search(p_uniprotHmm,value)
             match_nrHmm               = re.search(p_nrHmm,value)
+            match_customHmm           = re.search(p_customHmm,value)
             if match_ncbiVirusGenomeHmm:
                 NCBI_VIRUS_GENOME_HMM = True
             if match_ncbiVirusProteinHmm:
@@ -527,6 +618,8 @@ for i in range(0,argCount):
                 REFSEQ_GENE_HMM = True
             if match_pvogsHmm:
                 PVOGS_HMM = True 
+            if match_vogsHmm:
+                VOGS_HMM = True 
             if match_phantomeHmm:
                 PHANTOME_HMM = True
             if match_phageEnzymeHmm:
@@ -543,6 +636,8 @@ for i in range(0,argCount):
                 UNIPROT_HMM = True
             if match_nrHmm:
                 NR_HMM = True
+            if match_customHmm:
+                CUSTOM_HMM = True
 
     if match_profileProgramStringParam: # hmm programs for searching hmm profile databases
         if i < argCount:
@@ -551,10 +646,28 @@ for i in range(0,argCount):
             if match_hmmscan:
                 HMMSCAN = True       # search hmm profile dB(s) with hmm program
 
+    #if match_customDatabasePathParam:  # custom database paths and names
+    #    if i < argCount:
+    #        value = argList[i+1]
+    #        paramSet = value.split('^')
+    #        for parameter in paramSet:
+    #            match_customGenomeDBpath  = re.search(p_customGenomeDBpath,parameter)
+    #            match_customGeneDBpath    = re.search(p_customGeneDBpath,parameter)
+    #            match_customProteinDBpath = re.search(p_customProteinDBpath,parameter)
+    #            match_customHmmDBpath     = re.search(p_customHmmDBpath,parameter)
+    #            if match_customGenomeDBpath:
+    #                (tag, customGenomeDBpath, customGenomeDBname) = parameter.split(':') 
+    #            elif match_customGeneDBpath:
+    #                (tag, customGeneDBpath, customGeneDBname) = parameter.split(':')
+    #            elif match_customProteinDBpath:
+    #                (tag, customProteinDBpath,customProteinDBname) = parameter.split(':') 
+    #            elif match_customHmmDBpath:
+    #                (tag, customHmmDBpath, customHmmDBname) = parameter.split(':') 
+
 # Blast or Hmm search of blast or sequence databases
 # Set local booleans: if any one database has been selected, then user intends to process
 blastOutputDir = ''
-if NCBI_VIRUS_GENOME_BLAST:
+if NCBI_VIRUS_GENOME_BLAST or CUSTOM_GENOME_BLAST:
     RUN_BLAST         = True
     RUN_HMM_SEARCH    = True
     RUN_GENOME_BLAST  = True
@@ -562,22 +675,23 @@ if NCBI_VIRUS_PROTEIN_BLAST:
     RUN_BLAST         = True
     RUN_HMM_SEARCH    = True
     RUN_PROTEIN_BLAST = True
-if REFSEQ_GENE_BLAST:
+if REFSEQ_GENE_BLAST or VOG_GENE_BLAST or CUSTOM_GENE_BLAST:
     RUN_BLAST         = True
     RUN_HMM_SEARCH    = True
     RUN_GENE_BLAST    = True
-if NCBI_VIRUS_PROTEIN_BLAST or REFSEQ_PROTEIN_BLAST or NR_BLAST:
+if NCBI_VIRUS_PROTEIN_BLAST or REFSEQ_PROTEIN_BLAST or NR_BLAST or CAZY_BLAST:
     RUN_BLAST         = True
     RUN_HMM_SEARCH    = True
     RUN_PROTEIN_BLAST = True
-if PVOGS_BLAST or PHANTOME_BLAST or PHAGE_ENZYME_BLAST or KEGG_VIRUS_BLAST:
+if PVOGS_BLAST or VOGS_BLAST or VOG_PROTEIN_BLAST or PHANTOME_BLAST or PHAGE_ENZYME_BLAST or KEGG_VIRUS_BLAST:
     RUN_BLAST         = True
     RUN_HMM_SEARCH    = True
     RUN_PROTEIN_BLAST = True
-if PFAM_BLAST or SMART_BLAST or SWISSPROT_BLAST or UNIPROT_BLAST:
+if PFAM_BLAST or SMART_BLAST or SWISSPROT_BLAST or UNIPROT_BLAST or CUSTOM_PROTEIN_BLAST:
     RUN_BLAST         = True
     RUN_HMM_SEARCH    = True
     RUN_PROTEIN_BLAST = True
+
 # If user did not also select a code for searching a blast or sequence DB, then turn off.
 if not BLASTP_SEARCH:
     RUN_PROTEIN_BLAST = False
@@ -592,9 +706,9 @@ if REFSEQ_GENE_HMM:
     RUN_PROFILE_SEARCH = True 
 if REFSEQ_PROTEIN_HMM or NR_HMM:
     RUN_PROFILE_SEARCH = True
-if PVOGS_HMM or PHANTOME_HMM or PHAGE_ENZYME_HMM or KEGG_VIRUS_HMM:
+if PVOGS_HMM or VOGS_HMM or PHANTOME_HMM or PHAGE_ENZYME_HMM or KEGG_VIRUS_HMM:
     RUN_PROFILE_SEARCH = True
-if PFAM_HMM or SMART_HMM or SWISSPROT_HMM or UNIPROT_HMM:
+if PFAM_HMM or SMART_HMM or SWISSPROT_HMM or UNIPROT_HMM or CUSTOM_HMM:
     RUN_PROFILE_SEARCH = True
 # If user did not select hmmscan, then turn off, regardless of whether profile DBs were selected.
 if not HMMSCAN:  # Only hmmscan, at least for now.
@@ -625,7 +739,7 @@ except IOError as e:
 
 try:
     LOGFILE_H.write("%s%s\n" % ("Opening primary calls file, ",infile_primaryCalls))
-    PRIMARY_CALLS_FILE = open(infile_primaryCalls,"r")
+    PRIMARY_CALLS_FILE_H = open(infile_primaryCalls,"r")
 except IOError as e:
     fileError = True
     if PHATE_WARNINGS == 'True':
@@ -675,6 +789,7 @@ LOGFILE_H.write("%s%s\n" % ("blastpIdentity is ",blastpIdentity))
 LOGFILE_H.write("%s%s\n" % ("blastnIdentity is ",blastnIdentity))
 LOGFILE_H.write("%s%s\n" % ("blastpHitCount is ",blastpHitCount))
 LOGFILE_H.write("%s%s\n" % ("blastnHitCount is ",blastnHitCount))
+LOGFILE_H.write("%s%s\n" % ("blastThreads is ",str(blastThreads)))
 if TRANSLATE_ONLY:
     LOGFILE_H.write("%s\n" % ("Translating only; no annotation."))
 else:
@@ -695,6 +810,9 @@ LOGFILE_H.write("%s%s\n" % ("NCBI_VIRUS_PROTEIN_BLAST is ",NCBI_VIRUS_PROTEIN_BL
 LOGFILE_H.write("%s%s\n" % ("REFSEQ_PROTEIN_BLAST is ",REFSEQ_PROTEIN_BLAST))
 LOGFILE_H.write("%s%s\n" % ("REFSEQ_GENE_BLAST is ",REFSEQ_GENE_BLAST))
 LOGFILE_H.write("%s%s\n" % ("PVOGS_BLAST is ",PVOGS_BLAST))
+LOGFILE_H.write("%s%s\n" % ("VOGS_BLAST is ",VOGS_BLAST))    #*** To be deprecated
+LOGFILE_H.write("%s%s\n" % ("VOG_GENE_BLAST is ",VOG_GENE_BLAST))
+LOGFILE_H.write("%s%s\n" % ("VOG_PROTEIN_BLAST is ",VOG_PROTEIN_BLAST))
 LOGFILE_H.write("%s%s\n" % ("PHANTOME_BLAST is ",PHANTOME_BLAST))
 LOGFILE_H.write("%s%s\n" % ("PHAGE_ENZYME_BLAST is ",PHAGE_ENZYME_BLAST))
 LOGFILE_H.write("%s%s\n" % ("KEGG_VIRUS_BLAST is ",KEGG_VIRUS_BLAST))
@@ -703,6 +821,10 @@ LOGFILE_H.write("%s%s\n" % ("SMART_BLAST is ",SMART_BLAST))
 LOGFILE_H.write("%s%s\n" % ("SWISSPROT_BLAST is ",SWISSPROT_BLAST))
 LOGFILE_H.write("%s%s\n" % ("UNIPROT_BLAST is ",UNIPROT_BLAST))
 LOGFILE_H.write("%s%s\n" % ("NR_BLAST is ",NR_BLAST))
+LOGFILE_H.write("%s%s\n" % ("CAZY_BLAST is ",CAZY_BLAST))
+LOGFILE_H.write("%s%s\n" % ("CUSTOM_GENOME_BLAST is ",CUSTOM_GENOME_BLAST))
+LOGFILE_H.write("%s%s\n" % ("CUSTOM_GENE_BLAST is ",CUSTOM_GENE_BLAST))
+LOGFILE_H.write("%s%s\n" % ("CUSTOM_PROTEIN_BLAST is ",CUSTOM_PROTEIN_BLAST))
 # Hmm search against hmm profile databases
 LOGFILE_H.write("%s%s\n" % ("RUN_PROFILE_SEARCH is ",RUN_PROFILE_SEARCH))
 LOGFILE_H.write("%s%s\n" % ("HMMSCAN is ",HMMSCAN))
@@ -712,6 +834,7 @@ LOGFILE_H.write("%s%s\n" % ("NCBI_VIRUS_PROTEIN_HMM is ",NCBI_VIRUS_PROTEIN_HMM)
 LOGFILE_H.write("%s%s\n" % ("REFSEQ_PROTEIN_HMM is ",REFSEQ_PROTEIN_HMM))
 LOGFILE_H.write("%s%s\n" % ("REFSEQ_GENE_HMM is ",REFSEQ_GENE_HMM))
 LOGFILE_H.write("%s%s\n" % ("PVOGS_HMM is ",PVOGS_HMM))
+LOGFILE_H.write("%s%s\n" % ("VOGS_HMM is ",VOGS_HMM))
 LOGFILE_H.write("%s%s\n" % ("PHANTOME_HMM is ",PHANTOME_HMM))
 LOGFILE_H.write("%s%s\n" % ("PHAGE_ENZYME_HMM is ",PHAGE_ENZYME_HMM))
 LOGFILE_H.write("%s%s\n" % ("KEGG_VIRUS_HMM is ",KEGG_VIRUS_HMM))
@@ -720,6 +843,8 @@ LOGFILE_H.write("%s%s\n" % ("SMART_HMM is ",SMART_HMM))
 LOGFILE_H.write("%s%s\n" % ("SWISSPROT_HMM is ",SWISSPROT_HMM))
 LOGFILE_H.write("%s%s\n" % ("UNIPROT_HMM is ",UNIPROT_HMM))
 LOGFILE_H.write("%s%s\n" % ("NR_HMM is ",NR_HMM))
+#LOGFILE_H.write("%s%s\n" % ("CUSTOM_GENE_HMM is ",CUSTOM_GENE_HMM))
+#LOGFILE_H.write("%s%s\n" % ("CUSTOM_PROTEIN_HMM is ",CUSTOM_PROTEIN_HMM))
 
 # Communicate to user
 if PHATE_MESSAGES == 'True':
@@ -735,12 +860,13 @@ if PHATE_MESSAGES == 'True':
     print("  protein file is", infile_protein)
     print("  genome type is", genomeType)
     print("  genome name is", genomeName)
-    print("  contigName is", contigName)
-    print("  species is", species)
+    #print("  contigName is", contigName)
+    print("  genomeSpecies is", genomeSpecies)
     print("  blastp identity is", blastpIdentity)
     print("  blastn identity is", blastnIdentity)
     print("  blastp hit count is", blastpHitCount)
     print("  blastn hit count is", blastnHitCount)
+    print("  blastThreads is", blastThreads)
     if TRANSLATE_ONLY:
         print("  Translating only; no annotation.")
     else:
@@ -757,6 +883,9 @@ if PHATE_MESSAGES == 'True':
     print("  REFSEQ_PROTEIN_BLAST is", REFSEQ_PROTEIN_BLAST)
     print("  REFSEQ_GENE_BLAST is", REFSEQ_GENE_BLAST)
     print("  PVOGS_BLAST is", PVOGS_BLAST)
+    print("  VOGS_BLAST is", VOGS_BLAST)   #*** To be deprecated
+    print("  VOG_GENE_BLAST is", VOG_GENE_BLAST)
+    print("  VOG_PROTEIN_BLAST is", VOG_PROTEIN_BLAST)
     print("  PHANTOME_BLAST is", PHANTOME_BLAST)
     print("  PHAGE_ENZYME_BLAST is", PHAGE_ENZYME_BLAST)
     print("  KEGG_VIRUS_BLAST is", KEGG_VIRUS_BLAST)
@@ -765,6 +894,10 @@ if PHATE_MESSAGES == 'True':
     print("  SWISSRPOT_BLAST is", SWISSPROT_BLAST)
     print("  UNIRPOT_BLAST is", UNIPROT_BLAST)
     print("  NR_BLAST is", NR_BLAST)
+    print("  CAZY_BLAST is", CAZY_BLAST)
+    print("  CUSTOM_GENOME_BLAST is", CUSTOM_GENOME_BLAST)
+    print("  CUSTOM_GENE_BLAST is", CUSTOM_GENE_BLAST)
+    print("  CUSTOM_PROTEIN_BLAST is", CUSTOM_PROTEIN_BLAST)
     print("  RUN_PROFILE_SEARCH is", RUN_PROFILE_SEARCH)
     print("  HMMSCAN is", HMMSCAN)
     print("  NCBI_VIRUS_GENOME_HMM is", NCBI_VIRUS_GENOME_HMM)
@@ -772,6 +905,7 @@ if PHATE_MESSAGES == 'True':
     print("  REFSEQ_PROTEIN_HMM is", REFSEQ_PROTEIN_HMM)
     print("  REFSEQ_GENE_HMM is", REFSEQ_GENE_HMM)
     print("  PVOGS_HMM is", PVOGS_HMM)
+    print("  VOGS_HMM is", VOGS_HMM)
     print("  PHANTOME_HMM is", PHANTOME_HMM)
     print("  PHAGE_ENZYME_HMM is", PHAGE_ENZYME_HMM)
     print("  KEGG_VIRUS_HMM is", KEGG_VIRUS_HMM)
@@ -780,6 +914,8 @@ if PHATE_MESSAGES == 'True':
     print("  SWISSPROT_HMM is", SWISSPROT_HMM)
     print("  UNIPROT_HMM is", UNIPROT_HMM)
     print("  NR_HMM is", NR_HMM)
+    #print("  CUSTOM_GENE_HMM is", CUSTOM_GENE_HMM)
+    #print("  CUSTOM_PROTEIN_HMM is", CUSTOM_PROTEIN_HMM)
 
 if PHATE_PROGRESS == 'True':
     print("phate_sequenceAnnotation_main says, Configuration complete for sequence annotation module.")
@@ -824,9 +960,9 @@ LOGFILE_H.write("%s%s\n" % ("Processing gene calls at ",datetime.datetime.now())
 # ...for access when ultimately writing the GFF output file. (oh what we do for want of a pointer.)
 if PHATE_PROGRESS == 'True':
     print("phate_sequenceAnnotation_main says, geneCallInfo",geneCallInfo,"infile_primaryCalls",infile_primaryCalls,"contigSeqLen_hash",contigSeqLen_hash)
-myGenome.processGeneCalls(geneCallInfo,PRIMARY_CALLS_FILE)
+myGenome.processGeneCalls(geneCallInfo,PRIMARY_CALLS_FILE_H)
 myGenome.cleanUpAfterEMBOSS()
-PRIMARY_CALLS_FILE.close()
+PRIMARY_CALLS_FILE_H.close()
 
 # Output the gene and protein sets, if newly created
 
@@ -949,6 +1085,7 @@ else:
             'geneCallDir'          : outputDir, 
             'blastOutDir'          : genomeBlastOutputDir,
             'ncbiVirusGenomeBlast' : NCBI_VIRUS_GENOME_BLAST,
+            'customGenomeBlast'    : CUSTOM_GENOME_BLAST,
         }
         blast.setBlastParameters(myParamSet)
         blast.setBlastFlavor('blastn') 
@@ -991,17 +1128,22 @@ else:
 
         # Prepare for gene blast
         myParamSet = {
-            'identityMin'     : int(blastnIdentity),   
-            'identitySelect'  : int(blastnIdentity),  
-            'evalueMin'       : EVALUE_MIN,
-            'evalueSelect'    : EVALUE_SELECT,
-            'topHitCount'     : int(blastnHitCount),  #*** maybe should parameterize this
-            'outputFormat'    : XML_OUT_FORMAT,  # XML=5; LIST=7
-            'scoreEdge'       : 0.1,
-            'overhang'        : 0.1,
-            'geneCallDir'     : outputDir, 
-            'blastOutDir'     : geneBlastOutputDir,
-            'refseqGeneBlast' : REFSEQ_GENE_BLAST,
+            'identityMin'         : int(blastnIdentity),   
+            'identitySelect'      : int(blastnIdentity),  
+            'evalueMin'           : EVALUE_MIN,
+            'evalueSelect'        : EVALUE_SELECT,
+            'topHitCount'         : int(blastnHitCount),  #*** maybe should parameterize this
+            'outputFormat'        : XML_OUT_FORMAT,  # XML=5; LIST=7
+            'scoreEdge'           : 0.1,
+            'overhang'            : 0.1,
+            'geneCallDir'         : outputDir, 
+            'blastOutDir'         : geneBlastOutputDir,
+            'refseqGeneBlast'     : REFSEQ_GENE_BLAST,   #*** To ge deprecated
+            'vogGeneBlast'        : VOG_GENE_BLAST,
+            'pvogsOutDir'         : geneBlastOutputDir,
+            'vogsOutDir'          : geneBlastOutputDir,
+            'customGeneBlast'     : CUSTOM_GENE_BLAST,
+            'blastThreads'        : blastThreads,
         }
         blast.setBlastParameters(myParamSet)
         blast.setBlastFlavor('blastn') 
@@ -1051,9 +1193,12 @@ else:
             'geneCallDir'           : outputDir, 
             'blastOutDir'           : proteinBlastOutputDir,
             'pvogsOutDir'           : proteinBlastOutputDir,
+            'vogsOutDir'            : proteinBlastOutputDir,
             'ncbiVirusProteinBlast' : NCBI_VIRUS_PROTEIN_BLAST,
             'refseqProteinBlast'    : REFSEQ_PROTEIN_BLAST,
             'pvogsBlast'            : PVOGS_BLAST,
+            'vogsBlast'             : VOGS_BLAST,   #*** To be deprecated
+            'vogProteinBlast'       : VOG_PROTEIN_BLAST,
             'phantomeBlast'         : PHANTOME_BLAST,
             'phageEnzymeBlast'      : PHAGE_ENZYME_BLAST,
             'keggVirusBlast'        : KEGG_VIRUS_BLAST,
@@ -1062,6 +1207,9 @@ else:
             'swissprotBlast'        : SWISSPROT_BLAST,
             'uniprotBlast'          : UNIPROT_BLAST,
             'nrBlast'               : NR_BLAST,
+            'cazyBlast'             : CAZY_BLAST,
+            'customProteinBlast'    : CUSTOM_PROTEIN_BLAST,
+            'blastThreads'          : blastThreads,
         }
         blast.setBlastParameters(myParamSet)
         blast.setBlastFlavor('blastp')
@@ -1077,9 +1225,6 @@ else:
         if PHATE_PROGRESS == 'True':
             print("phate_sequenceAnnotation_main says, Protein blast complete.")
         LOGFILE_H.write("%s%s\n" % ("Protein blast complete at ", datetime.datetime.now()))
-
-        # Write out pVOGs sequences to enable alignments
-        ###*** YIKES-- SOMETHING MISSING HERE ???
 
     else:
         if PHATE_PROGRESS == 'True':
@@ -1118,7 +1263,7 @@ else:
             os.mkdir(proteinHmmOutputDir)
 
         # Prepare for protein hmm search
-        # HMM search uses jackhmmer (or other, in future?) against fasta blast databases
+        # HMM search uses jackhmmer or phmmer against fasta blast databases
         myParamSet = {
             'hmmProgram'            : '', 
             'phmmerSearch'          : PHMMER_SEARCH,
@@ -1128,11 +1273,15 @@ else:
             'geneHmmOutDir'         : geneHmmOutputDir,
             'proteinHmmOutDir'      : proteinHmmOutputDir,
             'pVOGsOutDir'           : proteinHmmOutputDir,
+            'VOGsOutDir'            : proteinHmmOutputDir,
             'ncbiVirusGenomeBlast'  : NCBI_VIRUS_GENOME_BLAST,
             'ncbiVirusProteinBlast' : NCBI_VIRUS_PROTEIN_BLAST,
             'refseqProteinBlast'    : REFSEQ_PROTEIN_BLAST,
             'refseqGeneBlast'       : REFSEQ_GENE_BLAST,
             'pvogsBlast'            : PVOGS_BLAST,
+            'vogsBlast'             : VOGS_BLAST,
+            'vogGeneBlast'          : VOG_GENE_BLAST,
+            'vogProteinBlast'       : VOG_PROTEIN_BLAST,
             'phantomeBlast'         : PHANTOME_BLAST,
             'phageEnzymeBlast'      : PHAGE_ENZYME_BLAST,
             'keggVirusBlast'        : KEGG_VIRUS_BLAST,
@@ -1141,8 +1290,10 @@ else:
             'swissprotBlast'        : SWISSPROT_BLAST,
             'uniprotBlast'          : UNIPROT_BLAST,
             'nrBlast'               : NR_BLAST,
+            'cazyBlast'             : CAZY_BLAST,
+            'customGeneBlast'       : CUSTOM_GENE_BLAST,
+            'customProteinBlast'    : CUSTOM_PROTEIN_BLAST,
         }
-
         hmm.setHmmParameters(myParamSet)
 
         if PHATE_PROGRESS == 'True':
@@ -1168,7 +1319,7 @@ else:
 
     else:
         if PHATE_PROGRESS == 'True':
-            print("phate_sequenceAnnotation_main says, Skipping HMM search")
+            print("phate_sequenceAnnotation_main says, Skipping HMM sequence search")
 
     #################################################################################
     ##### HMM PROFILE SEARCH
@@ -1198,6 +1349,7 @@ else:
         # Create profile output directory for protein profile search and pVOG groups
         proteinProfileOutputDir = profileOutputDir + 'Protein/'
         pVOGsOutputDir          = profileOutputDir + 'Protein/'
+        VOGsOutputDir           = profileOutputDir + 'Protein/'
         try:
             os.stat(proteinProfileOutputDir)
         except:
@@ -1217,10 +1369,12 @@ else:
             'geneProfileOutDir'    : geneProfileOutputDir,
             'proteinProfileOutDir' : proteinProfileOutputDir,
             'pVOGsOutDir'          : pVOGsOutputDir,
+            'VOGsOutDir'           : VOGsOutputDir,
             'hmmscan'              : hmmscan,
             'ncbiVirusProteinHmm'  : NCBI_VIRUS_PROTEIN_HMM,
             'refseqProteinHmm'     : REFSEQ_PROTEIN_HMM,
             'pvogsHmm'             : PVOGS_HMM,
+            'vogsHmm'              : VOGS_HMM,  # Vog Hmms are protein
             'phantomeHmm'          : PHANTOME_HMM,
             'phageEnzymeHmm'       : PHAGE_ENZYME_HMM,
             'keggVirusHmm'         : KEGG_VIRUS_HMM,

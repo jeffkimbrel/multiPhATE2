@@ -5,7 +5,7 @@
 # Program Title:  multiPhate2.py (/multiPhate2/)
 #
 # Programmer:  Carol L. Ecale Zhou
-# Last Update:  05 May 2020
+# Last Update:  08 August 2020
 #
 # Description: Script multiPhate.py runs an annotation pipeline (phate_runPipeline.py) over any
 #    number of genomes specified in the user's input configuration file (multPhate.config). It then
@@ -20,10 +20,11 @@
 #         predicted peptide from each genome. Codes that may be selected are: blastn (genome and gene),
 #         blastp, phmmer, jackhmmer, hmmscan. Databases are appropriate to the code (ie, blast,
 #         sequence, or hmm profile). Homology search results are combined into tabbed and gff outfiles.
-#      2) multiPhate.py runs the comparative genomics module to compare the predicted proteins
+#      2) multiPhate.py runs the comparative genomics module to compare the predicted genes and proteins
 #         of the user's genomes. CGP identifies a reference genome (the first listed in the user
-#         config), and lists all corresponding predicted proteins from each of the other genomes.
-#         Lastly, it identifies a core proteome common among the users input genomes.
+#         config), and lists all corresponding predicted genes and proteins from each of the other genomes.
+#         Lastly, it identifies corresponding genes and proteins with respect to the reference genome,
+#         and creates homology groups.
 #
 # Programmer's notes:
 #
@@ -42,15 +43,30 @@ import subprocess
 import json
 from multiprocessing import Pool
 
-# CONFIGURABLE
+# Because grep works differently in Python 3.x, and works differently on Mac OSX, need to set this environment
+# variable so that grep works correctly in SequenceAnnotation/phate_annotation.py:
+# Set MAC_OSX either to True or False by commenting in/out accordingly:
+#MAC_OSX = True
+MAC_OSX = False
+
+MAC_OSX_STRING = ""
+if MAC_OSX:
+    MAC_OSX_STRING = 'True'
+else:
+    MAC_OSX_STRING = 'False'
+
+# Parallelism is now controlled in the user's configuration file, input to multiPhATE. 
+# Below are the default values for parameters hpc, threads, and blastThreads.
 # 1) If you are running multiPhATE on a high-performance computing (HPC) system (e.g., using SLURM), you will need to mute the multiPhate log.
 # Set HPC = True to prevent multiPhATE from writing the multiPhate.log file, as each process attempting to write to this one file will cause
 # contention for I/O.
 HPC = False  # write to log
 # HPC = True  # mute the log
 # Set THREADS to 'ALL' to use all available processors, or to an integer to limit number of parallel processes
-THREADS = 'ALL'
-# THREADS = 1
+#THREADS = 'ALL'
+THREADS = 1
+# Set the number of blast threads that blast+ will invoke
+BLAST_THREADS = 1
 # 2) If you are running under a linux system, set PHATE_OUT and PHATE_ERR to 'True'. This will capture standard errors to files. Cannot
 # guarantee this will work under other operating systems.
 PHATE_OUT = 'False'
@@ -79,8 +95,8 @@ PHATE_MESSAGES = PHATE_MESSAGES_DEFAULT
 PHATE_WARNINGS = PHATE_WARNINGS_DEFAULT
 CGP_PROGRESS   = CGP_PROGRESS_DEFAULT
 
+DEBUG = False
 #DEBUG = True     # Controls debug settings in this (local) code only
-DEBUG = False    # Leave False, unless debugging
 
 ##### SET DEFAULTS for USER-DEFINED PARAMETERS
 
@@ -110,16 +126,20 @@ blastnHitCount           = 5
 ncbiVirusGenomeBlast     = False
 ncbiVirusProteinBlast    = False
 keggVirusBlast           = False
-nrBlast                  = False
 refseqProteinBlast       = False
 refseqGeneBlast          = False
 phantomeBlast            = False
 pvogsBlast               = False
+vogsBlast                = False
+vogGeneBlast             = False
+vogProteinBlast          = False
 pfamBlast                = False
 smartBlast               = False
 uniprotBlast             = False
 swissprotBlast           = False
 phageEnzymeBlast         = False
+nrBlast                  = False
+cazyBlast                = False
 
 # parameters controlling custom blast processes: booleans, custom names, and paths
 customGenomeBlast        = False
@@ -133,9 +153,6 @@ customGeneDBpath         = 'pathNotSet'
 customProteinDBpath      = 'pathNotSet'
 
 # programs, databases, and booleans controlling hmm processes
-# programs
-#hmmProgram               = ''     # hmm program for blast database search; currently only choice is 'jackhmmer'; '' = off
-#jackhmmer                = False  # hmm programs for hmm search
 blastpSearch             = False  # if True, run blastp against fasta blast database(s)
 phmmerSearch             = False  # if True, run phmmer against fasta database(s)
 jackhmmerSearch          = False  # if True, run jackhmmer against fasta blast database(s)
@@ -153,6 +170,7 @@ refseqGeneHmm            = False
 refseqProteinHmm         = False
 phantomeHmm              = False
 pvogsHmm                 = False
+vogsHmm                  = False
 uniparcHmm               = False
 uniprotHmm               = False
 swissprotHmm             = False
@@ -168,6 +186,7 @@ refseqGeneHmmDBpath       = "pathNotSet"
 refseqProteinHmmDBpath    = "pathNotSet"
 phantomeHmmDBpath         = "pathNotSet"
 pvogsHmmDBpath            = "pathNotSet"
+vogsHmmDBpath             = "pathNotSet"
 uniprotHmmDBpath          = "pathNotSet"
 swissprotHmmDBpath        = "pathNotSet"
 pfamHmmDBpath             = "pathNotSet"
@@ -179,6 +198,11 @@ customHmm                = False
 customHmmName            = 'unknown'
 customHmmDBname          = 'unknown'
 customHmmDBpath          = 'pathNotSet'
+
+# parameters controlling parallelism
+threads                  = THREADS        # Value should be a positive integer or ALL
+hpc                      = HPC            # True or False
+blastThreads             = BLAST_THREADS  # positive integer
 
 # Constants; defaults will apply if not specified in config file
 # Leave all this stuff alone!
@@ -195,21 +219,23 @@ GENOMICS_DIR_DEFAULT        = BASE_DIR_DEFAULT + "Genomics/"
 GENOMICS_RESULTS_DIR        = PIPELINE_OUTPUT_DIR_DEFAULT + "GENOMICS_RESULTS/"
 JSON_DIR                    = BASE_DIR_DEFAULT + "JSON/"
 
-PHATE_PIPELINE_CODE         = 'phate_runPipeline.py' # The annotaton engine
-GENE_FILE                   = 'gene.fnt'             # default filename where gene sequences are written, per genome's PipelineOutput/
-PROTEIN_FILE                = 'protein.faa'          # default filename where protein sequences are written, per genome's PipelineOutput/
-CGP_CODE_NAME               = 'cgp_driver.py'        # top-level, driver program for running CompareGeneProfiles pipeline
-CGP_CODE                    = CGP_DIR_DEFAULT + CGP_CODE_NAME # absolute path of top-level, driver for CompareGeneProfiles pipeline
-GENOMICS_CODE_NAME          = 'genomics_driver.py'   # top-level, driver program for running Genomics analysis
-GENOMICS_CODE               = GENOMICS_DIR_DEFAULT + GENOMICS_CODE_NAME # absolute path of top-level, drive for Genomics analysis
+PHATE_PIPELINE_CODE             = 'phate_runPipeline.py' # The annotaton engine
+GENE_FILE                       = 'gene.fnt'             # default filename where gene sequences are written, per genome's PipelineOutput/
+PROTEIN_FILE                    = 'protein.faa'          # default filename where protein sequences are written, per genome's PipelineOutput/
+CGP_CODE_NAME                   = 'cgp_driver.py'        # top-level, driver program for running CompareGeneProfiles pipeline
+CGP_CODE                        = CGP_DIR_DEFAULT + CGP_CODE_NAME # absolute path of top-level, driver for CompareGeneProfiles pipeline
+GENOMICS_CODE_NAME              = 'genomics_driver.py'   # top-level, driver program for running Genomics analysis
+GENOMICS_CODE                   = GENOMICS_DIR_DEFAULT + GENOMICS_CODE_NAME # absolute path of top-level, drive for Genomics analysis
+VOG_PROTEIN_HEADER_FILENAME     = "vog.protein.headers.lst"  # The headers from the vog.proteins.tagged.all.fa file (computed by multiPhate.py)
+VOG_PROTEIN_ANNOTATION_FILENAME = "vog.annotations.tsv"  # The annotations associated with VOG identifiers (downloaded from VOG server)
 
 # naming the custom gene caller
 # paths to subordinate codes; '' if installed globally (e.g., via conda)
-GENEMARKS_HOME              = ''             # Available via license
-GLIMMER_HOME                = ''             # Can install using Conda
-PRODIGAL_HOME               = ''             # Can install using Conda
-PHANOTATE_HOME              = ''             # not currently a conda package; acquire from github
-HMMER_HOME                  = ''             # Can install using Conda; HMMER includes jackhmmer, hmmbuild, hmmscan
+GENEMARKS_HOME              = '' # Available via license
+GLIMMER_HOME                = '' # Can install using Conda
+PRODIGAL_HOME               = '' # Can install using Conda
+PHANOTATE_HOME              = '' # not currently a conda package; acquire from github
+HMMER_HOME                  = '' # Can install using Conda; HMMER includes jackhmmer, hmmbuild, hmmscan
 
 # blast parameters
 BLASTP_IDENTITY_DEFAULT     = 60
@@ -232,6 +258,8 @@ HIT_COUNT_MAX               = 100 #
 # already have installed on your system. Parameters that differ from defaults will be re-assigned based on information
 # provided in the users' multiPhate.config file.
 
+os.environ["PHATE_MAC_OSX"]                 = MAC_OSX_STRING
+
 PIPELINE_INPUT_DIR                          = PIPELINE_INPUT_DIR_DEFAULT   # Default
 PIPELINE_OUTPUT_DIR                         = PIPELINE_OUTPUT_DIR_DEFAULT  # Default
 PHATE_BASE_DIR                              = BASE_DIR_DEFAULT
@@ -247,9 +275,12 @@ os.environ["PHATE_PIPELINE_DIR"]            = BASE_DIR_DEFAULT
 os.environ["PHATE_CGP_RESULTS_DIR"]         = CGP_RESULTS_DIR
 os.environ["PHATE_GENOMICS_RESULTS_DIR"]    = GENOMICS_RESULTS_DIR
 
+os.environ["PHATE_CUSTOM_GENECALLER_NAME"]  = ""  # set from user's config file
+
 # Gene calling and other codes
 # if installed globally
-os.environ["PHATE_PHANOTATE_PATH"]          = SOFTWARE_DIR_DEFAULT + "PHANOTATE/PHANOTATE-master/"
+#os.environ["PHATE_PHANOTATE_PATH"]          = SOFTWARE_DIR_DEFAULT + "PHANOTATE/PHANOTATE-master/"
+os.environ["PHATE_PHANOTATE_PATH"]          = ""   # should be installed globally now
 os.environ["PHATE_PRODIGAL_PATH"]           = ""   # global, if installed via conda
 os.environ["PHATE_GLIMMER_PATH"]            = ""   # global, if installed via conda
 os.environ["PHATE_GENEMARKS_PATH"]          = ""   # global, but not a conda package
@@ -266,7 +297,7 @@ os.environ["PHATE_CGC_PATH"]                = BASE_DIR_DEFAULT + "CompareCalls/"
 #EMBOSS_CODE                                 = "emboss"  # Modify this for the version you have--only if using non-global version
 #os.environ["PHATE_EMBOSS_PHATE_HOME"]       = SOFTWARE_DIR_DEFAULT + EMBOSS_CODE
 
-# Data sets
+# Data sets (Subject to change based on user input to config file)
 # BLAST
 os.environ["PHATE_NCBI_VIRUS_BASE_DIR"]             = DATABASE_DIR_DEFAULT + "NCBI/"
 os.environ["PHATE_NCBI_VIRUS_GENOME_BLAST_HOME"]    = os.environ["PHATE_NCBI_VIRUS_BASE_DIR"] + "Virus_Genome/"  + "viral.genomic.fna"
@@ -278,6 +309,15 @@ os.environ["PHATE_REFSEQ_GENE_BASE_DIR"]            = DATABASE_DIR_DEFAULT + "Re
 os.environ["PHATE_REFSEQ_GENE_BLAST_HOME"]          = os.environ["PHATE_REFSEQ_GENE_BASE_DIR"] + "refseqgene"
 os.environ["PHATE_PVOGS_BASE_DIR"]                  = DATABASE_DIR_DEFAULT + "pVOGs/"
 os.environ["PHATE_PVOGS_BLAST_HOME"]                = os.environ["PHATE_PVOGS_BASE_DIR"] + "pVOGs.faa"
+os.environ["PHATE_PVOGS_HEADER_FILE"]               = os.environ["PHATE_PVOGS_BASE_DIR"] + "pVOGs.headers.lst"
+os.environ["PHATE_VOGS_BASE_DIR"]                   = DATABASE_DIR_DEFAULT + "VOGs/"
+os.environ["PHATE_VOGS_BLAST_HOME"]                 = os.environ["PHATE_VOGS_BASE_DIR"] + "VOGs.faa"
+os.environ["PHATE_VOGS_ANNOTATION_FILE"]            = os.environ["PHATE_VOGS_BASE_DIR"] + "vog.annotations.tsv"
+os.environ["PHATE_VOG_GENE_BLAST_HOME"]             = os.environ["PHATE_VOGS_BASE_DIR"] + "VOG_genes.fnt"      #*** FIX
+os.environ["PHATE_VOG_PROTEIN_BLAST_HOME"]          = os.environ["PHATE_VOGS_BASE_DIR"] + "VOG_protein.faa"
+os.environ["PHATE_VOG_PROTEIN_BASE_DIR"]            = os.environ["PHATE_VOGS_BASE_DIR"]
+os.environ["PHATE_VOG_PROTEIN_HEADERS_FILE"]        = ""
+os.environ["PHATE_VOG_PROTEIN_ANNOTATION_FILE"]     = ""
 os.environ["PHATE_PHANTOME_BASE_DIR"]               = DATABASE_DIR_DEFAULT + "Phantome/"
 os.environ["PHATE_PHANTOME_BLAST_HOME"]             = os.environ["PHATE_PHANTOME_BASE_DIR"] + "Phantome_Phage_genes.faa"
 os.environ["PHATE_PHAGE_ENZYME_BASE_DIR"]           = DATABASE_DIR_DEFAULT + "PhageEnzyme/" # not yet in service
@@ -294,11 +334,14 @@ os.environ["PHATE_UNIPROT_BASE_DIR"]                = DATABASE_DIR_DEFAULT + "Un
 os.environ["PHATE_UNIPROT_BLAST_HOME"]              = os.environ["PHATE_UNIPROT_BASE_DIR"] + "uniprot"
 os.environ["PHATE_NR_BLAST_BASE_DIR"]               = DATABASE_DIR_DEFAULT + "NR/"
 os.environ["PHATE_NR_BLAST_HOME"]                   = os.environ["PHATE_NR_BLAST_BASE_DIR"] + "nr"
+os.environ["PHATE_CAZY_BLAST_BASE_DIR"]             = DATABASE_DIR_DEFAULT + "CAZY/"
+os.environ["PHATE_CAZY_BLAST_HOME"]                 = os.environ["PHATE_CAZY_BLAST_BASE_DIR"] + "cazy.faa"
+os.environ["PHATE_CAZY_ANNOTATION_PATH"]            = ""  # read from config file
 os.environ["PHATE_CUSTOM_GENOME_BLAST_HOME"]        = ""  # read from config file
 os.environ["PHATE_CUSTOM_GENE_BLAST_HOME"]          = ""  # read from config file
 os.environ["PHATE_CUSTOM_PROTEIN_BLAST_HOME"]       = ""  # read from config file
 
-# HMM
+# HMM (Subject to change based on user input to config file)
 os.environ["PHATE_NCBI_VIRUS_PROTEIN_HMM_BASE_DIR"] = DATABASE_DIR_DEFAULT + "NCBI/Virus_Protein/" # not yet in service
 os.environ["PHATE_NCBI_VIRUS_PROTEIN_HMM_HOME"]     = os.environ["PHATE_NCBI_VIRUS_PROTEIN_HMM_BASE_DIR"] + "unknown"
 os.environ["PHATE_NCBI_VIRUS_GENOME_HMM_BASE_DIR"]  = DATABASE_DIR_DEFAULT + "NCBI/Virus_Genome/" # not yet in service
@@ -309,6 +352,8 @@ os.environ["PHATE_REFSEQ_GENE_HMM_BASE_DIR"]        = DATABASE_DIR_DEFAULT + "Re
 os.environ["PHATE_REFSEQ_GENE_HMM_HOME"]            = os.environ["PHATE_REFSEQ_GENE_HMM_BASE_DIR"] + "unknown"
 os.environ["PHATE_PVOGS_HMM_BASE_DIR"]              = DATABASE_DIR_DEFAULT + "pVOGhmms/"
 os.environ["PHATE_PVOGS_HMM_HOME"]                  = os.environ["PHATE_PVOGS_HMM_BASE_DIR"] + "AllvogHMMprofiles/"
+os.environ["PHATE_VOGS_HMM_BASE_DIR"]               = DATABASE_DIR_DEFAULT + "VOGhmms/"
+os.environ["PHATE_VOGS_HMM_HOME"]                   = os.environ["PHATE_VOGS_HMM_BASE_DIR"] + "VOGsHMMdb/"
 os.environ["PHATE_PHANTOME_HMM_BASE_DIR"]           = DATABASE_DIR_DEFAULT + "PHANTOME_hmm/" # not yet in service
 os.environ["PHATE_PHANTOME_HMM_HOME"]               = os.environ["PHATE_PHANTOME_HMM_BASE_DIR"] + "unknown" # not yet in service
 os.environ["PHATE_PHAGE_ENZYME_HMM_BASE_DIR"]       = DATABASE_DIR_DEFAULT + "phageEnzyme_hmm/"  # not yet in service
@@ -426,15 +471,15 @@ p_glimmerCalls                = re.compile("glimmer_calls='(.*)'")
 p_prodigalCalls               = re.compile("prodigal_calls='(.*)'")
 p_phanotateCalls              = re.compile("phanotate_calls='(.*)'")
 # Custom gene calling parameters
-p_custom_geneCalls            = re.compile("custom_gene_calls='(.*)'") # true/false # not yet in service
-p_custom_geneCallerName       = re.compile("custom_gene_caller_name='(.*)'") # not yet in service
-p_custom_geneCallerOutfile    = re.compile("custom_gene_caller_outfile='(.*)'") # not yet in service
+p_custom_geneCalls            = re.compile("custom_gene_calls='(.*)'") # true/false 
+p_custom_geneCallerName       = re.compile("custom_gene_caller_name='(.*)'")    # the name of the caller (e.g., RAST)
+#p_custom_geneCallerOutfile    = re.compile("custom_gene_caller_outfile='(.*)'") 
 
 # BLAST PROCESSING
-p_blastpSearch                = re.compile("blastp='(.*)'")             #
+p_blastpSearch                = re.compile("blastp='(.*)'")             
 # Blast Parameters (value)
-p_blastpIdentity              = re.compile("blastp_identity='(\d+)'")   #*** For now; but should distinguish between blastn/blastp
-p_blastnIdentity              = re.compile("blastn_identity='(\d+)'")   # not yet in service
+p_blastpIdentity              = re.compile("blastp_identity='(\d+)'")  
+p_blastnIdentity              = re.compile("blastn_identity='(\d+)'")   
 p_blastpHitCount              = re.compile("blastp_hit_count='(\d+)'")
 p_blastnHitCount              = re.compile("blastn_hit_count='(\d+)'")
 # Blast Processes to run (true/false)
@@ -443,6 +488,9 @@ p_ncbiVirusProteinBlast       = re.compile("ncbi_virus_protein_blast='(.*)'")
 p_refseqProteinBlast          = re.compile("refseq_protein_blast='(.*)'")
 p_refseqGeneBlast             = re.compile("refseq_gene_blast='(.*)'")
 p_pvogsBlast                  = re.compile("pvogs_blast='(.*)'")
+p_vogsBlast                   = re.compile("vogs_blast='(.*)'")  #*** To be deprecated
+p_vogGeneBlast                = re.compile("vog_gene_blast='(.*)'")
+p_vogProteinBlast             = re.compile("vog_protein_blast='(.*)'")
 p_phantomeBlast               = re.compile("phantome_blast='(.*)'")
 p_phageEnzymeBlast            = re.compile("phage_enzyme_blast='(.*)'")
 p_keggVirusBlast              = re.compile("kegg_virus_blast='(.*)'")
@@ -451,12 +499,16 @@ p_smartBlast                  = re.compile("smart_blast='(.*)'")
 p_swissprotBlast              = re.compile("swissprot_blast='(.*)'")
 p_uniprotBlast                = re.compile("uniprot_blast='(.*)'")    # not in service
 p_nrBlast                     = re.compile("nr_blast='(.*)'")
+p_cazyBlast                   = re.compile("cazy_blast='(.*)'")
 # Blast Database Locations; these may be read in from config file, but are set as environment vars
 p_ncbiVirusGenomeDBpath       = re.compile("ncbi_virus_genome_database_path='(.*)'")
 p_ncbiVirusProteinDBpath      = re.compile("ncbi_virus_protein_database_path='(.*)'")
 p_refseqProteinDBpath         = re.compile("refseq_protein_database_path='(.*)'")
 p_refseqGeneDBpath            = re.compile("refseq_gene_database_path='(.*)'")
 p_pvogsDBpath                 = re.compile("pvogs_database_path='(.*)'")
+p_vogsDBpath                  = re.compile("vogs_database_path='(.*)'")
+p_vogGeneDBpath               = re.compile("vog_gene_database_path='(.*)'")
+p_vogProteinDBpath            = re.compile("vog_protein_database_path='(.*)'")
 p_phantomeDBpath              = re.compile("phantome_database_path='(.*)'")
 p_phageEnzymeDBpath           = re.compile("phage_enzyme_database_path='(.*)'") # not yet in service
 p_keggVirusDBpath             = re.compile("kegg_virus_database_path='(.*)'")
@@ -465,6 +517,8 @@ p_smartDBpath                 = re.compile("smart_database_path='(.*)'")
 p_swissprotDBpath             = re.compile("swissprot_database_path='(.*)'")
 p_uniprotDBpath               = re.compile("uniprot_database_path='(.*)'")     # not in service
 p_nrDBpath                    = re.compile("nr_database_path='(.*)'")
+p_cazyDBpath                  = re.compile("cazy_database_path='(.*)'")
+p_cazyAnnotationPath          = re.compile("cazy_annotation_path='(.*)'")
 
 # Custom blast processes and parameters
 # Custom blast processes to run (true/false)
@@ -483,24 +537,23 @@ p_customProteinDBpath         = re.compile("custom_protein_blast_database_path='
 # HMM PROCESSING
 
 # HMM Processing to be done (true/false)
-#p_hmmProgram                  = re.compile("hmm_program='(.*)'")      # for hmm search of fasta database(s)
-#p_jackhmmer                   = re.compile("jackhmmer='(.*)'")        # not yet in service
 p_phmmerSearch                = re.compile("phmmer='(.*)'")           # for hmm search of fasta database(s)
 p_jackhmmerSearch             = re.compile("jackhmmer='(.*)'")        # for hmm search of fasta database(s)
-p_hmmscan                     = re.compile("hmmscan='(.*)'")          # not yet in service
+p_hmmscan                     = re.compile("hmmscan='(.*)'")          # for hmm search of hmm profile database(s) 
 # HMM Databases to be used (true/false)
-p_ncbiVirusGenomeHmm          = re.compile("ncbi_virus_genome_hmm_profiles='(.*)'")
-p_ncbiVirusProteinHmm         = re.compile("ncbi_virus_protein_hmm_profiles='(.*)'")
-p_refseqProteinHmm            = re.compile("refseq_protein_hmm_profiles='(.*)'")
-p_refseqGeneHmm               = re.compile("refseq_gene_hmm_profiles='(.*)'")
+p_ncbiVirusGenomeHmm          = re.compile("ncbi_virus_genome_hmm_profiles='(.*)'")  # not in service
+p_ncbiVirusProteinHmm         = re.compile("ncbi_virus_protein_hmm_profiles='(.*)'") # not in service
+p_refseqProteinHmm            = re.compile("refseq_protein_hmm_profiles='(.*)'")     # not in service
+p_refseqGeneHmm               = re.compile("refseq_gene_hmm_profiles='(.*)'")        # not in service
 p_pvogsHmm                    = re.compile("pvogs_hmm_profiles='(.*)'")
-p_phantomeHmm                 = re.compile("phantome_hmm_profiles='(.*)'")  # not yet in service
-p_phageEnzymeHmm              = re.compile("phage_enzyme_hmm_profiles='(.*)'")
-p_keggVirusHmm                = re.compile("kegg_virus_hmm_profiles='(.*)'")
-p_pfamHmm                     = re.compile("pfam_hmm_profiles='(.*)'")      # not yet in service
-p_smartHmm                    = re.compile("smart_hmm_profiles='(.*)'")     # not yet in service
-p_swissprotHmm                = re.compile("swissprot_hmm_profiles='(.*)'") # not yet in service
-p_uniprotHmm                  = re.compile("uniprot_hmm_profiles='(.*)'")   # not yet in service (will this be combined with swissprot?)
+p_vogsHmm                     = re.compile("vogs_hmm_profiles='(.*)'")
+p_phantomeHmm                 = re.compile("phantome_hmm_profiles='(.*)'")           # not in service
+p_phageEnzymeHmm              = re.compile("phage_enzyme_hmm_profiles='(.*)'")       # not in service
+p_keggVirusHmm                = re.compile("kegg_virus_hmm_profiles='(.*)'")         # not in service
+p_pfamHmm                     = re.compile("pfam_hmm_profiles='(.*)'")               # not in service
+p_smartHmm                    = re.compile("smart_hmm_profiles='(.*)'")              # not in service
+p_swissprotHmm                = re.compile("swissprot_hmm_profiles='(.*)'")          # not in service
+p_uniprotHmm                  = re.compile("uniprot_hmm_profiles='(.*)'")            # not in service (will this be combined with swissprot?)
 p_nrHmm                       = re.compile("nr_hmm_profiles='(.*)'")
 # HMM profile databases (locations; string)
 p_ncbiVirusGenomeHmmDBpath    = re.compile("ncbi_virus_genome_hmm_profiles_database_path='(.*)'")
@@ -508,6 +561,7 @@ p_ncbiVirusProteinHmmDBpath   = re.compile("ncbi_virus_protein_hmm_profiles_data
 p_refseqProteinHmmDBpath      = re.compile("refseq_protein_hmm_profiles_database_path='(.*)'")
 p_refseqGeneHmmDBpath         = re.compile("refseq_gene_hmm_profiles_database_path='(.*)'")
 p_pvogsHmmDBpath              = re.compile("pvogs_hmm_profiles_database_path='(.*)'")
+p_vogsHmmDBpath               = re.compile("vogs_hmm_profiles_database_path='(.*)'")
 p_phantomeHmmDBpath           = re.compile("phantome_hmm_profiles_database_path='(.*)'")
 p_phageEnzymeHmmDBpath        = re.compile("phage_enzyme_hmm_profiles_database_path='(.*)'")
 p_keggVirusHmmDBpath          = re.compile("kegg_virus_hmm_profiles_database_path='(.*)'")
@@ -522,11 +576,11 @@ p_customHmmDBname             = re.compile("custom_hmm_profiles_database_name='(
 p_customHmmDBpath             = re.compile("custom_hmm_profiles_database_path='(.*)'")  # value/string
 
 # COMPARATIVE GENOMICS
-p_runCGP                      = re.compile("CGP='(.*)'")              # not yet in service
-p_hmmbuild                    = re.compile("hmmbuild='(.*)'")         # not yet in service
-p_hmmsearch                   = re.compile("hmmsearch='(.*)'")        # not yet in service
+p_runCGP                      = re.compile("CGP='(.*)'")              # run CGP followed by Genomics module
+p_hmmbuild                    = re.compile("hmmbuild='(.*)'")         # not yet in service; hmmbuild creates profiles from homology groups
+p_hmmsearch                   = re.compile("hmmsearch='(.*)'")        # not yet in service; hmmscan is the program, hmmsearch uses hmmscan w/profile query 
 
-# DEPENDENT CODE LOCATIONS
+# DEPENDENT CODE LOCATIONS: These codes should be installed globally, except for phanotate.
 p_blastPlusHome               = re.compile("blast_plus_home='(.*)'")
 p_embossHome                  = re.compile("emboss_home='(.*)'")
 p_tRNAscanSEhome              = re.compile("tRNAscanSE_home='(.*)'")
@@ -536,11 +590,16 @@ p_phanotateHome               = re.compile("phanotate_home='(.*)'")
 p_genemarkHome                = re.compile("genemark_home='(.*)'")
 p_hmmerHome                   = re.compile("hmmer_home='(.*)'")
 
+# PARALLELISM
+p_threads                     = re.compile("threads='(.*)'")
+p_hpc                         = re.compile("HPC='(.*)'")
+p_blastThreads                = re.compile("blast_threads='(.*)'")
+
 # VERBOSTIY
 p_phateWarnings               = re.compile("phate_warnings='(.*)'")
 p_phateMessages               = re.compile("phate_messages='(.*)'")
 p_phateProgress               = re.compile("phate_progress='(.*)'")
-p_cgcWarnings                 = re.compile("cgc_warnings='(.*)'")
+p_cgcWarnings                 = re.compile("cgc_warnings='(.*)'")    # CGC warnings, messages, and progress are now linked w/ those of phate
 p_cgcMessages                 = re.compile("cgc_messages='(.*)'")
 p_cgcProgress                 = re.compile("cgc_progress='(.*)'")
 p_cgpWarnings                 = re.compile("cgp_warnings='(.*)'")
@@ -642,8 +701,8 @@ for cLine in cLines:
     match_glimmerCalls              = re.search(p_glimmerCalls,cLine)
     match_phanotateCalls            = re.search(p_phanotateCalls,cLine)
     match_customGeneCalls           = re.search(p_custom_geneCalls,cLine)
-    match_customGeneCallerName      = re.search(p_custom_geneCallerName,cLine)
-    match_customGeneCallerOutfile   = re.search(p_custom_geneCallerOutfile,cLine)
+    match_customGeneCallerName      = re.search(p_custom_geneCallerName,cLine)   # Name of program (eg, RAST)
+    #match_customGeneCallerOutfile   = re.search(p_custom_geneCallerOutfile,cLine)
 
     # translation info
     match_primaryCalls              = re.search(p_primaryCalls,cLine)
@@ -667,6 +726,9 @@ for cLine in cLines:
     match_refseqProteinBlast        = re.search(p_refseqProteinBlast,cLine)
     match_refseqGeneBlast           = re.search(p_refseqGeneBlast,cLine)
     match_pvogsBlast                = re.search(p_pvogsBlast,cLine)
+    match_vogsBlast                 = re.search(p_vogsBlast,cLine)     #*** To be deprecated
+    match_vogGeneBlast              = re.search(p_vogGeneBlast,cLine)
+    match_vogProteinBlast           = re.search(p_vogProteinBlast,cLine)
     match_phantomeBlast             = re.search(p_phantomeBlast,cLine)
     match_phageEnzymeBlast          = re.search(p_phageEnzymeBlast,cLine)
     match_keggVirusBlast            = re.search(p_keggVirusBlast,cLine)
@@ -675,6 +737,7 @@ for cLine in cLines:
     match_swissprotBlast            = re.search(p_swissprotBlast,cLine)
     match_uniprotBlast              = re.search(p_uniprotBlast,cLine)
     match_nrBlast                   = re.search(p_nrBlast,cLine)
+    match_cazyBlast                 = re.search(p_cazyBlast,cLine)
 
     match_customGenomeBlast         = re.search(p_customGenomeBlast,cLine)
     match_customGenomeDBname        = re.search(p_customGenomeDBname,cLine)
@@ -697,6 +760,7 @@ for cLine in cLines:
     match_refseqProteinHmm          = re.search(p_refseqProteinHmm,cLine)      # ? big; is this used?
     match_refseqGeneHmm             = re.search(p_refseqGeneHmm,cLine)         # ? big; is this used?
     match_pvogsHmm                  = re.search(p_pvogsHmm,cLine)
+    match_vogsHmm                   = re.search(p_vogsHmm,cLine)
     match_phantomeHmm               = re.search(p_phantomeHmm,cLine)
     match_phageEnzymeHmm            = re.search(p_phageEnzymeHmm,cLine)
     match_keggVirusHmm              = re.search(p_keggVirusHmm,cLine)          # ? is there an hmm profiles db for kegg? build it?
@@ -714,7 +778,7 @@ for cLine in cLines:
     match_phanotateCalls            = re.search(p_phanotateCalls,cLine)
     match_customGeneCalls           = re.search(p_custom_geneCalls,cLine)
     match_customGeneCallerName      = re.search(p_custom_geneCallerName,cLine)
-    match_customGeneCallerOutfile   = re.search(p_custom_geneCallerOutfile,cLine)
+    #match_customGeneCallerOutfile   = re.search(p_custom_geneCallerOutfile,cLine)
 
     # directories; should be unnecessary to read from config; using standard predefined directory locations
     match_phateDir                  = re.search(p_phateDir,cLine)
@@ -740,6 +804,9 @@ for cLine in cLines:
     match_refseqGeneDBpath          = re.search(p_refseqGeneDBpath,cLine)
     match_refseqProteinDBpath       = re.search(p_refseqProteinDBpath,cLine)
     match_pvogsDBpath               = re.search(p_pvogsDBpath,cLine)
+    match_vogsDBpath                = re.search(p_vogsDBpath,cLine)
+    match_vogGeneDBpath             = re.search(p_vogGeneDBpath,cLine)
+    match_vogProteinDBpath          = re.search(p_vogProteinDBpath,cLine)
     match_phantomeDBpath            = re.search(p_phantomeDBpath,cLine)
     match_phageEnzymeDBpath         = re.search(p_phageEnzymeDBpath,cLine)
     match_keggVirusDBpath           = re.search(p_keggVirusDBpath,cLine)
@@ -748,6 +815,8 @@ for cLine in cLines:
     match_swissprotDBpath           = re.search(p_swissprotDBpath,cLine)
     match_uniprotDBpath             = re.search(p_uniprotDBpath,cLine)
     match_nrDBpath                  = re.search(p_nrDBpath,cLine)
+    match_cazyDBpath                = re.search(p_cazyDBpath,cLine)
+    match_cazyAnnotationPath        = re.search(p_cazyAnnotationPath,cLine)
     match_customGenomeDBpath        = re.search(p_customGenomeDBpath,cLine)
     match_customGeneDBpath          = re.search(p_customGeneDBpath,cLine)
     match_customProteinDBpath       = re.search(p_customProteinDBpath,cLine)
@@ -757,6 +826,7 @@ for cLine in cLines:
     match_refseqGeneHmmDBpath       = re.search(p_refseqGeneHmmDBpath,cLine)
     match_refseqProteinHmmDBpath    = re.search(p_refseqProteinHmmDBpath,cLine)
     match_pvogsHmmDBpath            = re.search(p_pvogsHmmDBpath,cLine)
+    match_vogsHmmDBpath             = re.search(p_vogsHmmDBpath,cLine)
     match_phantomeHmmDBpath         = re.search(p_phantomeHmmDBpath,cLine)
     match_phageEnzymeHmmDBpath      = re.search(p_phageEnzymeHmmDBpath,cLine)
     match_keggVirusHmmDBpath        = re.search(p_keggVirusHmmDBpath,cLine)
@@ -771,6 +841,11 @@ for cLine in cLines:
     match_runCGP                    = re.search(p_runCGP,cLine)
     match_hmmbuild                  = re.search(p_hmmbuild,cLine)
     match_hmmsearch                 = re.search(p_hmmsearch,cLine)
+
+    # parallelism
+    match_threads                   = re.search(p_threads,cLine)
+    match_hpc                       = re.search(p_hpc,cLine)
+    match_blastThreads              = re.search(p_blastThreads,cLine)
 
     # verbosity
     match_phateWarnings             = re.search(p_phateWarnings,cLine)
@@ -973,13 +1048,15 @@ for cLine in cLines:
         else:
             customGeneCalls = False
 
-    elif match_customGeneCallerName:
+    elif match_customGeneCallerName:   # ie, the name of the program that generated the calls (e.g., RAST)
         value = match_customGeneCallerName.group(1)
         customGeneCallerName = value
+        os.environ["PHATE_CUSTOM_GENECALLER_NAME"] = customGeneCallerName
 
-    elif match_customGeneCallerOutfile:
-        value = match_customGeneCallerOutfile.group(1)
-        customGeneCallerOutfile = value
+    # To be deprecated: user must use standard file naming for custom calls (ie, genomeName.custom)
+    #elif match_customGeneCallerOutfile:
+    #    value = match_customGeneCallerOutfile.group(1)
+    #    customGeneCallerOutfile = value
 
     ##### BLAST #####
 
@@ -1048,6 +1125,21 @@ for cLine in cLines:
         if value.lower() == 'true' or value.lower() == 'yes' or value.lower() == 'on':
             pvogsBlast = True
 
+    elif match_vogsBlast:   #*** To be deprecated
+        value = match_vogsBlast.group(1)
+        if value.lower() == 'true' or value.lower() == 'yes' or value.lower() == 'on':
+            vogsBlast = True
+
+    elif match_vogGeneBlast:
+        value = match_vogGeneBlast.group(1)
+        if value.lower() == 'true' or value.lower() == 'yes' or value.lower() == 'on':
+            vogGeneBlast = True
+
+    elif match_vogProteinBlast:
+        value = match_vogProteinBlast.group(1)
+        if value.lower() == 'true' or value.lower() == 'yes' or value.lower() == 'on':
+            vogProteinBlast = True
+
     elif match_phantomeBlast:
         value = match_phantomeBlast.group(1)
         if value.lower() == 'true' or value.lower() == 'yes' or value.lower() == 'on':
@@ -1083,6 +1175,11 @@ for cLine in cLines:
         if value.lower() == 'true' or value.lower() == 'yes' or value.lower() == 'on':
              nrBlast = True
 
+    elif match_cazyBlast:
+        value = match_cazyBlast.group(1)
+        if value.lower() == 'true' or value.lower() == 'yes' or value.lower() == 'on':
+             cazyBlast = True
+
     elif match_customGenomeBlast:
         value = match_customGenomeBlast.group(1).lower()
         if value == 'true' or value == 'yes' or value == 'on':
@@ -1092,12 +1189,12 @@ for cLine in cLines:
         value = match_customGenomeDBname.group(1)
         if value != '':
             customGenomeDBname = value
-
-    elif match_customGenomeDBpath:
-        value = match_customGenomeDBpath.group(1)
-        if value != '':
-            customGenomeDBpath = value
-
+    
+    #elif match_customGenomeDBpath:
+    #    value = match_customGenomeDBpath.group(1)
+    #    if value != '':
+    #        customGenomeDBpath = value
+    
     elif match_customGeneBlast:
         value = match_customGeneBlast.group(1).lower()
         if value == 'true' or value == 'yes' or value == 'on':
@@ -1107,12 +1204,12 @@ for cLine in cLines:
         value = match_customGeneDBname.group(1)
         if value != '':
             customGeneDBname = value
-
-    elif match_customGeneDBpath:
-        value = match_customGeneDBpath.group(1)
-        if value != '':
-            customGeneDBpath = value
-
+    
+    #elif match_customGeneDBpath:
+    #    value = match_customGeneDBpath.group(1)
+    #    if value != '':
+    #        customGeneDBpath = value
+    
     elif match_customProteinBlast:
         value = match_customProteinBlast.group(1).lower()
         if value == 'true' or value == 'yes' or value == 'on':
@@ -1122,12 +1219,12 @@ for cLine in cLines:
         value = match_customProteinDBname.group(1)
         if value != '':
             customProteinDBname = value
-
-    elif match_customProteinDBpath:
-        value = match_customProteinDBpath.group(1)
-        if value != '':
-            customProteinBlastDBpath = value
-
+    
+    #elif match_customProteinDBpath:
+    #    value = match_customProteinDBpath.group(1)
+    #    if value != '':
+    #        customProteinDBpath = value
+    
     ##### HMM #####
 
     # HMM programs
@@ -1163,6 +1260,11 @@ for cLine in cLines:
         value = match_pvogsHmm.group(1)
         if value.lower() == 'true' or value.lower() == 'yes' or value.lower() == 'on':
             pvogsHmm = True
+
+    elif match_vogsHmm:
+        value = match_vogsHmm.group(1)
+        if value.lower() == 'true' or value.lower() == 'yes' or value.lower() == 'on':
+            vogsHmm = True
 
     elif match_phantomeHmm:
         value = match_phantomeHmm.group(1)
@@ -1213,12 +1315,12 @@ for cLine in cLines:
         value = match_customHmmDBname.group(1)
         if value != '':
             customHmmDBname = value
-
-    elif match_customHmmDBpath:
-        value = match_customHmmDBpath.group(1)
-        if value != '':
-            customHmmDBpath = value
-
+    
+    #elif match_customHmmDBpath:
+    #    value = match_customHmmDBpath.group(1)
+    #    if value != '':
+    #        customHmmDBpath = value
+    
     # Comparative Genomics
 
     elif match_runCGP:
@@ -1290,7 +1392,28 @@ for cLine in cLines:
     elif match_pvogsDBpath:
         if match_pvogsDBpath.group(1) != '':
             os.environ["PHATE_PVOGS_BLAST_HOME"] = match_pvogsDBpath.group(1)
-            #os.environ["PHATE_PVOGS_HMM_HOME"]   = match_pvogsHmmDBpath.group(1)
+
+    elif match_vogsDBpath:   #*** To be deprecated
+        if match_vogsDBpath.group(1) != '':
+            os.environ["PHATE_VOGS_BLAST_HOME"] = match_vogsDBpath.group(1)
+
+    elif match_vogGeneDBpath:   
+        if match_vogGeneDBpath.group(1) != '':
+            os.environ["PHATE_VOG_GENE_BLAST_HOME"] = match_vogGeneDBpath.group(1)
+
+    elif match_vogProteinDBpath:   
+        if match_vogProteinDBpath.group(1) != '':
+            os.environ["PHATE_VOG_PROTEIN_BLAST_HOME"] = match_vogProteinDBpath.group(1)
+            PHATE_VOG_PROTEIN_BASE_DIR = os.path.dirname(match_vogProteinDBpath.group(1)) + '/'
+            os.environ["PHATE_VOG_PROTEIN_BASE_DIR"]        = PHATE_VOG_PROTEIN_BASE_DIR 
+            os.environ["PHATE_VOG_PROTEIN_HEADER_FILE"]     = os.path.join(PHATE_VOG_PROTEIN_BASE_DIR,VOG_PROTEIN_HEADER_FILENAME)
+            os.environ["PHATE_VOG_PROTEIN_ANNOTATION_FILE"] = os.path.join(PHATE_VOG_PROTEIN_BASE_DIR,VOG_PROTEIN_ANNOTATION_FILENAME)
+            # Create Vog Protein headers file
+            try:
+                command = "grep '>' " + os.environ["PHATE_VOG_PROTEIN_BLAST_HOME"] + ' > ' + os.environ["PHATE_VOG_PROTEIN_HEADER_FILE"]
+                success = os.system(command)
+            except:
+                print ("multiPhate says, ERROR: Could not create PHATE_VOG_PROTEIN_HEADER_FILE")
 
     elif match_phantomeDBpath:
         if match_phantomeDBpath.group(1) != '':
@@ -1325,7 +1448,17 @@ for cLine in cLines:
     elif match_nrDBpath:
         if match_nrDBpath.group(1) != '':
             os.environ["PHATE_NR_BLAST_HOME"] = match_nrDBpath.group(1)
+     
+    elif match_cazyDBpath:
+        if match_cazyDBpath.group(1) != '':
+            phateCAZyBlastHome = match_cazyDBpath.group(1)
+            os.environ["PHATE_CAZY_BLAST_HOME"] = phateCAZyBlastHome 
+            os.environ["PHATE_CAZY_BASE_DIR"]   = os.path.dirname(phateCAZyBlastHome) + '/'
 
+    elif match_cazyAnnotationPath:
+        if match_cazyAnnotationPath.group(1) != '':
+            os.environ["PHATE_CAZY_ANNOTATION_PATH"] = match_cazyAnnotationPath.group(1)
+     
     elif match_customGenomeDBpath:
         value = match_customGenomeDBpath.group(1)
         if value != '':
@@ -1343,7 +1476,7 @@ for cLine in cLines:
         if value != '':
             customProteinDBpath = value
         os.environ["PHATE_CUSTOM_PROTEIN_BLAST_HOME"] = customProteinDBpath
-
+    
     # Hmm database locations
 
     elif match_ncbiVirusGenomeHmmDBpath:
@@ -1367,6 +1500,12 @@ for cLine in cLines:
         if value != '':
             pvogsHmmDBpath = value
         os.environ["PHATE_PVOGS_HMM_HOME"] = pvogsHmmDBpath
+
+    elif match_vogsHmmDBpath:
+        value = match_vogsHmmDBpath.group(1)
+        if value != '':
+            vogsHmmDBpath = value
+        os.environ["PHATE_VOGS_HMM_HOME"] = vogsHmmDBpath
 
     elif match_phantomeHmmDBpath:
         value = match_phantomeHmmDBpath.group(1)
@@ -1421,6 +1560,28 @@ for cLine in cLines:
         if value != '':
             customHmmDBpath = value
         os.environ["PHATE_CUSTOM_HMM_HOME"] = customHmmDBpath
+
+    ##### PARALLELISM #####
+
+    elif match_threads:
+        value = match_threads.group(1)
+        if value == 'ALL' or value == 'All' or value == 'all':
+            threads = value
+        elif int(value) >= 1:
+            threads = int(value) 
+        else:
+            threads = 1
+
+    elif match_hpc:
+        value = match_hpc.group(1)
+        if value.lower() == 'true' or value.lower() == 'yes' or value.lower() == 'on':
+            hpc = True
+            HPC = hpc   #*** need some cleanup wrt this variable, now that it's been moved to config file
+
+    elif match_blastThreads:
+        value = match_blastThreads.group(1)
+        if int(value) >= 1:
+            blastThreads = int(value)
 
     ##### VERBOSITY #####
 
@@ -1537,6 +1698,9 @@ if not HPC: # Skip logging if running in high-throughput, else multiPhate.log fi
     LOG.write("%s%s\n" % ("   refseqProteinBlast is ",refseqProteinBlast))
     LOG.write("%s%s\n" % ("   refseqGeneBlast is ",refseqGeneBlast))
     LOG.write("%s%s\n" % ("   pvogsBlast is ",pvogsBlast))
+    LOG.write("%s%s\n" % ("   vogsBlast is ",vogsBlast)) #*** To be deprecated
+    LOG.write("%s%s\n" % ("   vogGeneBlast is ",vogGeneBlast))
+    LOG.write("%s%s\n" % ("   vogProteinBlast is ",vogProteinBlast))
     LOG.write("%s%s\n" % ("   phantomeBlast is ",phantomeBlast))
     LOG.write("%s%s\n" % ("   phageEnzymeBlast is ",phageEnzymeBlast))
     LOG.write("%s%s\n" % ("   keggVirusBlast is ",keggVirusBlast))
@@ -1545,6 +1709,7 @@ if not HPC: # Skip logging if running in high-throughput, else multiPhate.log fi
     LOG.write("%s%s\n" % ("   swissprotBlast is ",swissprotBlast))
     LOG.write("%s%s\n" % ("   uniprotBlast is ",uniprotBlast))
     LOG.write("%s%s\n" % ("   nrBlast is ",nrBlast))
+    LOG.write("%s%s\n" % ("   cazyBlast is ",cazyBlast))
     if customGenomeBlast:
         LOG.write("%s%s\n" % ("   customGenomeBlast is ",customGenomeBlast))
         LOG.write("%s%s\n" % ("   customGenomeDBname is ",customGenomeDBname))
@@ -1564,6 +1729,7 @@ if not HPC: # Skip logging if running in high-throughput, else multiPhate.log fi
     LOG.write("%s%s\n" % ("   refseqProteinHmm is ",refseqProteinHmm))
     LOG.write("%s%s\n" % ("   refseqGeneHmm is ",refseqGeneHmm))
     LOG.write("%s%s\n" % ("   pvogsHmm is ",pvogsHmm))
+    LOG.write("%s%s\n" % ("   vogsHmm is ",vogsHmm))
     LOG.write("%s%s\n" % ("   phantomeHmm is ",phantomeHmm))
     LOG.write("%s%s\n" % ("   phageEnzymeHmm is ",phageEnzymeHmm))
     LOG.write("%s%s\n" % ("   keggVirusHmm is ",keggVirusHmm))
@@ -1589,6 +1755,9 @@ if not HPC: # Skip logging if running in high-throughput, else multiPhate.log fi
     LOG.write("%s%s\n" % ("   refseq gene database is located in ",os.environ["PHATE_REFSEQ_GENE_BLAST_HOME"]))
     LOG.write("%s%s\n" % ("   refseq protein database is located in ",os.environ["PHATE_REFSEQ_PROTEIN_BLAST_HOME"]))
     LOG.write("%s%s\n" % ("   pVOGs database is located in ",os.environ["PHATE_PVOGS_BLAST_HOME"]))
+    LOG.write("%s%s\n" % ("   VOGs database is located in ",os.environ["PHATE_VOGS_BLAST_HOME"]))
+    LOG.write("%s%s\n" % ("   VOG Genes database is located in ",os.environ["PHATE_VOG_GENE_BLAST_HOME"]))
+    LOG.write("%s%s\n" % ("   VOG Proteins database is located in ",os.environ["PHATE_VOG_PROTEIN_BLAST_HOME"]))
     LOG.write("%s%s\n" % ("   phantome database is located in ",os.environ["PHATE_PHANTOME_BLAST_HOME"]))
     LOG.write("%s%s\n" % ("   phage enzyme database is located in ",os.environ["PHATE_PHAGE_ENZYME_BLAST_HOME"]))
     LOG.write("%s%s\n" % ("   kegg virus database is located in ",os.environ["PHATE_KEGG_VIRUS_BLAST_HOME"]))
@@ -1597,6 +1766,7 @@ if not HPC: # Skip logging if running in high-throughput, else multiPhate.log fi
     LOG.write("%s%s\n" % ("   swissprot database is located in ",os.environ["PHATE_SWISSPROT_BLAST_HOME"]))
     LOG.write("%s%s\n" % ("   uniprot database is located in ",os.environ["PHATE_UNIPROT_BLAST_HOME"]))
     LOG.write("%s%s\n" % ("   NR database is located in ",os.environ["PHATE_NR_BLAST_HOME"]))
+    LOG.write("%s%s\n" % ("   CAZy database is located in ",os.environ["PHATE_CAZY_BLAST_HOME"]))
     if customGenomeBlast:
         LOG.write("%s%s\n" % ("   Custom genome blast database is located in ",os.environ["PHATE_CUSTOM_GENOME_BLAST_HOME"]))
     if customGeneBlast:
@@ -1608,6 +1778,7 @@ if not HPC: # Skip logging if running in high-throughput, else multiPhate.log fi
     LOG.write("%s%s\n" % ("   refseq gene hmm profiles are located in ",refseqGeneHmmDBpath))
     LOG.write("%s%s\n" % ("   refseq protein hmm profiles are located in ",refseqProteinHmmDBpath))
     LOG.write("%s%s\n" % ("   pvogs hmm profiles are located in ",pvogsHmmDBpath))
+    LOG.write("%s%s\n" % ("   vogs hmm profiles are located in ",vogsHmmDBpath))
     LOG.write("%s%s\n" % ("   phantome hmm profiles are located in ",phantomeHmmDBpath))
     LOG.write("%s%s\n" % ("   phage enzyme hmm profiles are located in ",phageEnzymeHmmDBpath))
     LOG.write("%s%s\n" % ("   kegg virus hmm profiles are located in ",keggVirusHmmDBpath))
@@ -1622,6 +1793,10 @@ if not HPC: # Skip logging if running in high-throughput, else multiPhate.log fi
     LOG.write("%s%s\n" % ("   runGenomics is ",runGenomics))
     LOG.write("%s%s\n" % ("   hmmbuild is ",hmmbuild))
     LOG.write("%s%s\n" % ("   hmmsearch is ",hmmsearch))
+    LOG.write("%s%s\n" % ("   threads is ",threads))
+    LOG.write("%s%s\n" % ("   HPC is ",HPC))
+    LOG.write("%s%s\n" % ("   hpc is ",hpc))
+    LOG.write("%s%s\n" % ("   blastThreads is ",blastThreads))
     LOG.write("%s%s\n" % ("   phate warnings is set to ",os.environ["PHATE_PHATE_WARNINGS"]))
     LOG.write("%s%s\n" % ("   phate messages is set to ",os.environ["PHATE_PHATE_MESSAGES"]))
     LOG.write("%s%s\n" % ("   phate progress is set to ",os.environ["PHATE_PHATE_PROGRESS"]))
@@ -1674,7 +1849,7 @@ for genome in genomeList:
             "prodigalCalls":prodigalCalls,
             "glimmerCalls":glimmerCalls,
             "genemarksCalls":genemarksCalls,
-            "customCalls":customGeneCalls,
+            "customGeneCalls":customGeneCalls,
             "customGeneCallerName":customGeneCallerName,
             "customGeneCallerOutfile":customGeneCallerOutfile,
             "primaryCalls":primaryCalls,
@@ -1688,6 +1863,9 @@ for genome in genomeList:
             "refseqGeneBlast":refseqGeneBlast,
             "refseqProteinBlast":refseqProteinBlast,
             "pvogsBlast":pvogsBlast,
+            "vogsBlast":vogsBlast,
+            "vogGeneBlast":vogGeneBlast,
+            "vogProteinBlast":vogProteinBlast,
             "phantomeBlast":phantomeBlast,
             "phageEnzymeBlast":phageEnzymeBlast,
             "keggVirusBlast":keggVirusBlast,
@@ -1696,6 +1874,7 @@ for genome in genomeList:
             "swissprotBlast":swissprotBlast,
             "uniprotBlast":uniprotBlast,
             "nrBlast":nrBlast,
+            "cazyBlast":cazyBlast,
             "customGenomeBlast":customGenomeBlast,
             "customGenomeDBname":customGenomeDBname,
             "customGenomeDBpath":customGenomeDBpath,
@@ -1710,6 +1889,7 @@ for genome in genomeList:
             "refseqGeneHmm":refseqGeneHmm,
             "refseqProteinHmm":refseqProteinHmm,
             "pvogsHmm":pvogsHmm,
+            "vogsHmm":vogsHmm,
             "phantomeHmm":phantomeHmm,
             "phageEnzymeHmm":phageEnzymeHmm,
             "keggVirusHmm":keggVirusHmm,
@@ -1725,6 +1905,7 @@ for genome in genomeList:
             "customHmm":customHmm,
             "customHmmDBname":customHmmDBname,
             "customHmmDBpath":customHmmDBpath,
+            "blastThreads":blastThreads,
             }
 
     # Write next json file
@@ -1740,7 +1921,6 @@ if not HPC:
     LOG.write("%s%s\n" % ("Processing genomes through PhATE. Begin processing at ",datetime.datetime.now()))
 
 # Run the phate pipeline over each genome, as specified in the multiPhate.config file
-
 def phate_threaded(jsonFile):
     print(f'multiPhate says, Running {jsonFile} on PID {os.getpid()}')
     if not HPC:
@@ -1753,15 +1933,19 @@ def phate_threaded(jsonFile):
     if not HPC:
         LOG.write("%s%s\n" % ("End PhATE processing at ",datetime.datetime.now()))
 
-if THREADS is 'ALL':
-    THREADS = os.cpu_count()
-elif THREADS > os.cpu_count():
-    THREADS = os.cpu_count()
+# Set up to run processing in parallel on multiple threads
+if threads is 'ALL':
+    threads = os.cpu_count()
+elif threads > os.cpu_count():
+    threads = os.cpu_count()
 
-print(f'Using {THREADS} threads')
+#print(f'Using {THREADS} threads')
+print(f'Using {threads} threads')
 
-pool = Pool(int(THREADS))
+#pool = Pool(int(THREADS))
+pool = Pool(int(threads))
 pool.map(phate_threaded, jsonList)
+
 pool.close()
 
 # Run the comparative genomics module to compare proteoms among the user's specified genomes
@@ -1854,8 +2038,12 @@ else:
         print("multiPhate says, Skipping CompareGeneProfiles.")
     LOG.write("%s\n" % ("Skipping CompareGeneProfiles."))
 
+# Turn off Genomics processing if user selected translate only
+if translateOnly == True:
+    runGenomics = False
+
 # Override
-runGenomics = False
+#runGenomics = False
 if runGenomics:
     if PHATE_PROGRESS:
         print("multiPhate says, Performing gene-correspondence analysis.")

@@ -6,7 +6,7 @@
 #
 # Programmer:  Carol Zhou
 #
-# Last Update:  10 April 2020
+# Last Update:  05 August 2020
 # 
 # Classes and Methods:
 #    multiBlast
@@ -67,6 +67,9 @@ NCBI_VIRUS_PROTEIN_BLAST_HOME = os.environ["PHATE_NCBI_VIRUS_PROTEIN_BLAST_HOME"
 REFSEQ_PROTEIN_BLAST_HOME     = os.environ["PHATE_REFSEQ_PROTEIN_BLAST_HOME"]
 REFSEQ_GENE_BLAST_HOME        = os.environ["PHATE_REFSEQ_GENE_BLAST_HOME"]
 PVOGS_BLAST_HOME              = os.environ["PHATE_PVOGS_BLAST_HOME"]
+VOGS_BLAST_HOME               = os.environ["PHATE_VOGS_BLAST_HOME"]    #*** To be deprecated
+VOG_GENE_BLAST_HOME           = os.environ["PHATE_VOG_GENE_BLAST_HOME"]
+VOG_PROTEIN_BLAST_HOME        = os.environ["PHATE_VOG_PROTEIN_BLAST_HOME"]
 PHANTOME_BLAST_HOME           = os.environ["PHATE_PHANTOME_BLAST_HOME"]
 KEGG_VIRUS_BLAST_HOME         = os.environ["PHATE_KEGG_VIRUS_BLAST_HOME"]
 SWISSPROT_BLAST_HOME          = os.environ["PHATE_SWISSPROT_BLAST_HOME"]
@@ -75,10 +78,14 @@ PFAM_BLAST_HOME               = os.environ["PHATE_PFAM_BLAST_HOME"]
 SMART_BLAST_HOME              = os.environ["PHATE_SWISSPROT_BLAST_HOME"]
 UNIPROT_BLAST_HOME            = os.environ["PHATE_UNIPROT_BLAST_HOME"]
 NR_BLAST_HOME                 = os.environ["PHATE_NR_BLAST_HOME"]
+CAZY_BLAST_BASE_DIR           = os.environ["PHATE_CAZY_BASE_DIR"]
+CAZY_BLAST_HOME               = os.environ["PHATE_CAZY_BLAST_HOME"]
 NCBI_TAXON_DIR                = os.environ["PHATE_NCBI_TAXON_DIR"]
 CUSTOM_GENOME_BLAST_HOME      = os.environ["PHATE_CUSTOM_GENOME_BLAST_HOME"]
 CUSTOM_GENE_BLAST_HOME        = os.environ["PHATE_CUSTOM_GENE_BLAST_HOME"]
 CUSTOM_PROTEIN_BLAST_HOME     = os.environ["PHATE_CUSTOM_PROTEIN_BLAST_HOME"]
+
+VOGS_ANNOTATION_FILE          = os.environ["PHATE_VOGS_ANNOTATION_FILE"]
 
 # Blast parameters
 MIN_BLASTP_IDENTITY           = os.environ["PHATE_MIN_BLASTP_IDENTITY"]   # Sets a lower limit
@@ -103,10 +110,12 @@ PHATE_PROGRESS                = os.environ["PHATE_PHATE_PROGRESS"]
 
 GENE_CALL_DIR            = ""  # set by set method, via parameter list
 BLAST_OUT_DIR            = ""  # set by set method, via parameter list
+# Pvog and Vog directories hold fasta groups; other blast processes do not generate these.
 PVOGS_OUT_DIR            = ""  # set by set method, via parameter list
+VOGS_OUT_DIR             = ""  # set by set method, via parameter list
 
-#DEBUG  = True 
 DEBUG  = False 
+#DEBUG  = True 
 
 # blast formats
 XML  = 5
@@ -126,23 +135,32 @@ class multiBlast(object):
         self.topHitCount              = 3         # default: Number of best hits to record
         self.scoreEdge                = SCORE_EDGE_MAX # default: BLAST recommended default
         self.overhang                 = OVERHANG_MAX   # default: BLAST recommended default
+        self.blastThreads             = 1         # default: run in serial
         self.outputFormat             = 5         # default: XML output
         self.blastAnnotations         = []        # List of phate_annotation objects; blast output get temporarily stored here
         # move to hit class:  self.topHitList     = []        # 
         self.geneCallDir              = ""        # needs to be set
         self.blastOutDir              = ""        # needs to be set
         self.pVOGsOutDir              = ""        # needs to be set
-        self.NCBI_VIRUS_GENOME_BLAST  = False     # assume not running this blast process, unless changed by parameter set method
-        self.NCBI_VIRUS_PROTEIN_BLAST = False     # ditto 
-        self.NR_BLAST                 = False     # ditto 
-        self.KEGG_VIRUS_BLAST         = False     # ditto
-        self.REFSEQ_PROTEIN_BLAST     = False     # ditto
-        self.REFSEQ_GENE_BLAST        = False     # ditto # not yet in service
-        self.PHANTOME_BLAST           = False     # ditto
-        self.PVOGS_BLAST              = False     # ditto
-        self.SWISSPROT_BLAST          = False     # ditto # not yet in service
-        self.PHAGE_ENZYME_BLAST       = False     # ditto # not yet in service
-
+        self.VOGsOutDir               = ""        # needs to be set
+        self.NCBI_VIRUS_GENOME_BLAST  = False     # For this and below: default is not running process; change by set method
+        self.NCBI_VIRUS_PROTEIN_BLAST = False     #  
+        self.NR_BLAST                 = False     #  
+        self.KEGG_VIRUS_BLAST         = False     # 
+        self.REFSEQ_PROTEIN_BLAST     = False     #
+        self.REFSEQ_GENE_BLAST        = False     #*** To be deprecated 
+        self.PHANTOME_BLAST           = False     # 
+        self.PVOGS_BLAST              = False     # 
+        self.VOGS_BLAST               = False     #*** To be deprecated
+        self.VOG_GENE_BLAST           = False     #  
+        self.VOG_PROTEIN_BLAST        = False     #  
+        self.SWISSPROT_BLAST          = False     #  
+        self.PHAGE_ENZYME_BLAST       = False     # not yet in service
+        self.CAZY_BLAST               = False     # not yet in service
+        self.CUSTOM_GENOME_BLAST      = False     #
+        self.CUSTOM_GENE_BLAST        = False     #
+        self.CUSTOM_PROTEIN_BLAST     = False     #
+        
     ##### SET AND GET PARAMETERS
 
     def setBlastParameters(self,paramset):
@@ -165,12 +183,16 @@ class multiBlast(object):
                 self.setScoreEdge(paramset['scoreEdge'])
             if 'overhang' in list(paramset.keys()):
                 self.setOverhang(paramset['overhang'])
+            if 'blastThreads' in list(paramset.keys()):
+                self.setBlastThreads(paramset['blastThreads'])
             if 'geneCallDir' in list(paramset.keys()):
                 self.setGeneCallDir(paramset['geneCallDir'])
             if 'blastOutDir' in list(paramset.keys()):
                 self.setBlastOutDir(paramset['blastOutDir'])
             if 'pvogsOutDir' in list(paramset.keys()):
                 self.setPVOGsOutDir(paramset['pvogsOutDir'])
+            if 'vogsOutDir' in list(paramset.keys()):
+                self.setVOGsOutDir(paramset['vogsOutDir'])
             if 'ncbiVirusGenomeBlast' in list(paramset.keys()):
                 self.NCBI_VIRUS_GENOME_BLAST = paramset["ncbiVirusGenomeBlast"]
             if 'ncbiVirusProteinBlast' in list(paramset.keys()):
@@ -187,10 +209,24 @@ class multiBlast(object):
                 self.PHANTOME_BLAST = paramset["phantomeBlast"]
             if 'pvogsBlast' in list(paramset.keys()):
                 self.PVOGS_BLAST = paramset["pvogsBlast"]
+            if 'vogsBlast' in list(paramset.keys()):  #*** To be deprecated
+                self.VOGS_BLAST = paramset["vogsBlast"]
+            if 'vogGeneBlast' in list(paramset.keys()):
+                self.VOG_GENE_BLAST = paramset["vogGeneBlast"]
+            if 'vogProteinBlast' in list(paramset.keys()):
+                self.VOG_PROTEIN_BLAST = paramset["vogProteinBlast"]
             if 'swissprotBlast' in list(paramset.keys()):
                 self.SWISSPROT_BLAST = paramset["swissprotBlast"]
             if 'phageEnzymeBlast' in list(paramset.keys()):
                 self.PHAGE_ENZYME_BLAST = paramset["phageEnzymeBlast"]
+            if 'cazyBlast' in list(paramset.keys()):
+                self.CAZY_BLAST = paramset["cazyBlast"]
+            if 'customGenomeBlast' in list(paramset.keys()):
+                self.CUSTOM_GENOME_BLAST = paramset["customGenomeBlast"]
+            if 'customGeneBlast' in list(paramset.keys()):
+                self.CUSTOM_GENE_BLAST = paramset["customGeneBlast"]
+            if 'customProteinBlast' in list(paramset.keys()):
+                self.CUSTOM_PROTEIN_BLAST = paramset["customProteinBlast"]
 
     def setBlastFlavor(self,flavor):
         if(flavor.lower() == 'blastp'):
@@ -203,7 +239,7 @@ class multiBlast(object):
             self.blastFlavor = 'tblastx'
         else:
             if PHATE_WARNINGS == 'True':
-                print("phate_blast says, WARNING: Unrecognized blast flavor:", flavor)
+                print("phate_blast says, WARNING: Unrecognized or not-yet implemented blast flavor:", flavor)
 
     def setIdentityMin(self,identity):
         if (int(identity) >= 1) and (int(identity) <= 100):
@@ -263,6 +299,12 @@ class multiBlast(object):
             if PHATE_WARNINGS == 'True':
                 print("phate_blast says, WARNING: Overhang should be between 0 and", OVERHANG_MAX, "If this is insufficient, you may change OVERHANG_MAX in phate_blast.py.")
 
+    def setBlastThreads(self,blastThreads):
+        if int(blastThreads) >= 1:
+            self.blastThreads = int(blastThreads)
+        else:
+            self.blastThreads = 1
+
     def setGeneCallDir(self,geneCallDir):
         self.geneCallDir = geneCallDir
         GENE_CALL_DIR = geneCallDir
@@ -275,11 +317,16 @@ class multiBlast(object):
         self.pVOGsOutDir = pVOGsOutDir
         PVOGS_OUT_DIR = pVOGsOutDir
 
+    def setVOGsOutDir(self,VOGsOutDir):
+        self.VOGsOutDir = VOGsOutDir
+        VOGS_OUT_DIR = VOGsOutDir
+
     def getTopHits(self):
         return self.topHitList 
 
     ##### PERFORM BLAST
 
+    # Blast one fasta sequence. This method is called by runBlast 
     def blast1fasta(self,fasta,outfile,database,dbName): # fasta is a phate_fastaSequence.fasta object
         command = ""
 
@@ -298,14 +345,16 @@ class multiBlast(object):
                 " -task blastn -db " + database + " -evalue " + str(self.evalueMin) + \
                 " -best_hit_score_edge " + str(self.scoreEdge) + " -best_hit_overhang " + \
                 str(self.overhang) + " -outfmt " + str(self.outputFormat) + " -perc_identity " + \
-                str(self.identityMin) + " -max_target_seqs " + str(self.topHitCount) 
+                str(self.identityMin) + " -max_target_seqs " + str(self.topHitCount) + \
+                " -num_threads " + str(self.blastThreads)
 
         elif self.blastFlavor == 'blastp': # Recall: You can't specificy %identity, but can filter afterward
             command = BLAST_HOME + "blastp -query " + fastaFile + " -out " + outfile + \
                 " -task blastp -db " + database + " -evalue " + str(self.evalueMin) + \
                 " -best_hit_score_edge " + str(self.scoreEdge) + " -best_hit_overhang " + \
                 str(self.overhang) + " -outfmt " + str(self.outputFormat) + \
-                " -max_target_seqs " + str(self.topHitCount)
+                " -max_target_seqs " + str(self.topHitCount) + \
+                " -num_threads " + str(self.blastThreads)
                 #" -max_target_seqs " + str(self.topHitCount) + \
                 #" -sorthits " + str(HIT_SORT_CRITERION) + \
                 #" -sorthsps " + str(HSP_SORT_CRITERION)
@@ -442,28 +491,34 @@ class multiBlast(object):
 
                 # Store new blast annotation
                 newAnnotation = copy.deepcopy(annotation)
-                newAnnotation.source = blastDatabase
-                newAnnotation.method = self.blastFlavor
+                newAnnotation.source         = blastDatabase
+                newAnnotation.method         = self.blastFlavor
                 newAnnotation.annotationType = "homology"
-                newAnnotation.name  = nextHitDataSet["hitDefline"]               # subject
-                newAnnotation.start = nextHitDataSet["hitHSPs"][0]["queryStart"] # query start
-                newAnnotation.end   = nextHitDataSet["hitHSPs"][0]["queryEnd"]   # query end
-                resultString = 'identity=' + str(round(nextHitDataSet["hitHSPs"][0]["hspPercentIdentity"],2)) 
+                newAnnotation.category       = "sequence"
+                newAnnotation.name           = nextHitDataSet["hitDefline"]               # subject header (possibly truncated by blast)
+                newAnnotation.start          = nextHitDataSet["hitHSPs"][0]["queryStart"] # query start
+                newAnnotation.end            = nextHitDataSet["hitHSPs"][0]["queryEnd"]   # query end
+                resultString                 = 'identity=' + str(round(nextHitDataSet["hitHSPs"][0]["hspPercentIdentity"],2)) 
                 newAnnotation.annotationList.append(resultString)
-                resultString = 'alignlen=' + str(nextHitDataSet["hitHSPs"][0]["hspAlignLen"]) 
+                resultString                 = 'alignlen=' + str(nextHitDataSet["hitHSPs"][0]["hspAlignLen"]) 
                 newAnnotation.annotationList.append(resultString)
                 resultString = 'evalue='   + str(nextHitDataSet["hitHSPs"][0]["hspEvalue"]) 
                 MEETS_IDENTITY_CUTOFF = False
                 if float(nextHitDataSet["hitHSPs"][0]["hspPercentIdentity"]) >= float(self.identityMin):
                     MEETS_IDENTITY_CUTOFF = True
 
-                # If this is a pVOGs blast result, capture the pVOG identifiers in the annotation objecta
-                match_pVOG = re.search('pvog',newAnnotation.source.lower())
-                if match_pVOG: 
-                    pVOGidList = re.findall('VOG\d+',newAnnotation.name)
-                    for pVOGid in pVOGidList:
-                        if pVOGid not in newAnnotation.pVOGlist: #** cez: bug fix 05 sept 2017
-                            newAnnotation.pVOGlist.append(pVOGid)
+                # CHECK THIS: code adapted assuming same structure of pVOGs vs. VOGs
+                # If this is a pVOG/VOG blast result, capture the VOG identifiers in the annotation object
+                match_pVOG = re.search('pvog',newAnnotation.source.lower())  # First check if it's a pVOG
+                if not match_pVOG:                                           # If it's not a pVOG, then it might be a VOG
+                    match_VOG  = re.search('vog', newAnnotation.source.lower())
+                if match_pVOG or match_VOG: 
+                    # Note that structure of pVOG annotation information differs from that of VOG.
+                    # VOG hit header has VOGid(s) + proteinID; pVOG hit header has VOGid(s) + proteinID + description
+                    VOGidList = re.findall('VOG\d+',newAnnotation.name)  # name holds to hit's header, which has func dscr for pVOG
+                    for VOGid in VOGidList:
+                        if VOGid not in newAnnotation.VOGlist:  # ensure list is non-redundant
+                            newAnnotation.VOGlist.append(VOGid)
                 newAnnotation.annotationList.append(resultString)
  
                 # Get DBXREFs, packed into annotation object's self.description field
@@ -502,7 +557,7 @@ class multiBlast(object):
                     newAnnotation.name  = columns[1] # subject
                     newAnnotation.start = columns[6] # query start
                     newAnnotation.end   = columns[7] # query end
-                    resultString = 'identity=' + rount(columns[2],2)
+                    resultString = 'identity=' + round(columns[2],2)
                     newAnnotation.annotationList.append(resultString)
                     resultString = 'alignlen=' + columns[3]
                     newAnnotation.annotationList.append(resultString)
@@ -524,6 +579,7 @@ class multiBlast(object):
             if PHATE_WARNINGS == 'True':
                 print("phate_blast says, WARNING: Output format", self.outputFormat, "not yet supported in phate_blast.py/blast1fasta(). Use blast out xml or list format for now.")
 
+    # Run BLAST over a set of fasta sequences. This method calls blast1fasta for each sequence.
     def runBlast(self,fastaSet,dbType="protein"): # fastaSet is a phate_fastaSequence.multiFasta object
 
         # Set sequence type 
@@ -545,17 +601,28 @@ class multiBlast(object):
         if GENOME:
             if self.NCBI_VIRUS_GENOME_BLAST:
                 database = NCBI_VIRUS_GENOME_BLAST_HOME
-                dbName   = 'ncbi'
+                dbName = 'ncbiVirusGenome'
                 count = 0
                 if PHATE_PROGRESS == 'True':
                     print("phate_blast says, Running NCBI blast:", database, dbName)
                 for fasta in fastaSet.fastaList:
                     count += 1
-                    outfile = self.blastOutDir + self.blastFlavor + "_ncbi_" + str(count)
+                    outfile = self.blastOutDir + self.blastFlavor + "_ncbiVirGenome_" + str(count)
+                    self.blast1fasta(fasta,outfile,database,dbName)
+
+            elif self.CUSTOM_GENOME_BLAST:
+                database = CUSTOM_GENOME_BLAST_HOME
+                dbName = 'customGenome'
+                count = 0
+                if PHATE_PROGRESS == 'True':
+                    print("phate_blast says, Running Custom Genome blast:", database, dbName)
+                for fasta in fastaSet.fastaList:
+                    count += 1
+                    outfile = self.blastOutDir + self.blastFlavor + "_customGenome_" + str(count)
                     self.blast1fasta(fasta,outfile,database,dbName)
 
         if GENE:
-            if self.REFSEQ_GENE_BLAST:
+            if self.REFSEQ_GENE_BLAST:  #*** To be deprecated
                 database = REFSEQ_GENE_BLAST_HOME
                 dbName   = 'refseqGene'
                 count = 0
@@ -564,7 +631,57 @@ class multiBlast(object):
                 for fasta in fastaSet.fastaList:
                     count += 1
                     outfile = self.blastOutDir + self.blastFlavor + "_refseqGene_" + str(count)
-                    self.blast1fasta(fasta,outfile,database,dbName)  #*** CONTROL
+                    self.blast1fasta(fasta,outfile,database,dbName)  
+
+            elif self.VOG_GENE_BLAST:
+                database = VOG_GENE_BLAST_HOME
+                dbName   = 'vogGene'
+                count    = 0
+                if PHATE_PROGRESS == 'True':
+                    print("phate_blast says, Running VOG Gene blast:", database, dbName)
+                for fasta in fastaSet.fastaList:
+                    count += 1
+                    outfile = self.blastOutDir + self.blastFlavor + "_vogGene_" + str(count)
+                    self.blast1fasta(fasta,outfile,database,dbName) 
+
+                if PHATE_PROGRESS == 'True':
+                    print("phate_blast says, Blasting completed.")
+                    print("phate_blast says, Collecting and saving VOG Gene sequences corresponding to blast hit(s)")
+
+                # Next you want to create VOG fasta group files so user can do alignments
+                # You need only one "alignment" file per VOG group that the fasta hit (under blast cutoffs)
+                # Capture VOG.faa lines
+                VOGs_h = open(database,"r")
+                VOGlines = VOGs_h.read().splitlines()
+                count = 0; countA = 0
+                for fasta in fastaSet.fastaList:
+                    vogPrintedList = []  # keeps track of VOGs that have already been printed for current fasta
+                    count += 1 
+                    countA = 0
+                    for annot in fasta.annotationList:
+                        for VOG in annot.VOGlist:  # There may be multiple annotations to inspect
+                            # Avoid redundancy in printing VOG groups for this fasta; only once per VOG ID that was a blast hit
+                            if VOG not in vogPrintedList:
+                                vogPrintedList.append(VOG)  # Record this pVOG identifier as "done"
+                                # create dynamic file name
+                                countA += 1 
+                                outfileVOG = self.VOGsOutDir + "vogGeneGroup_" + str(count) + '_' + str(countA) + '.fnt' 
+                                # open file and write current fasta plus each corresponding VOG fasta
+                                outfileVOG_h = open(outfileVOG,'w')
+                                outfileVOG_h.write("%c%s\n%s\n" % ('>',fasta.header,fasta.sequence)) # write the current peptide fasta,
+                                self.writeVOGsequences2file(outfileVOG_h,VOGlines,VOG)               # followed by the VOG group
+                                outfileVOG_h.close()
+
+            elif self.CUSTOM_GENE_BLAST:
+                database = CUSTOM_GENE_BLAST_HOME
+                dbName   = 'customGene'
+                count    = 0
+                if PHATE_PROGRESS == 'True':
+                    print("phate_blast says, Running Custom Gene blast:", database, dbName)
+                for fasta in fastaSet.fastaList:
+                    count += 1
+                    outfile = self.blastOutDir + self.blastFlavor + "_customGene_" + str(count)
+                    self.blast1fasta(fasta,outfile,database,dbName)
 
         if PROTEIN:
             if self.NR_BLAST:  
@@ -576,7 +693,7 @@ class multiBlast(object):
                 for fasta in fastaSet.fastaList:
                     count += 1
                     outfile = self.blastOutDir + self.blastFlavor + "_nr_" + str(count)
-                    self.blast1fasta(fasta,outfile,database,dbName)  #*** CONTROL
+                    self.blast1fasta(fasta,outfile,database,dbName)  
 
             if self.NCBI_VIRUS_PROTEIN_BLAST:  
                 database = NCBI_VIRUS_PROTEIN_BLAST_HOME
@@ -587,7 +704,7 @@ class multiBlast(object):
                 for fasta in fastaSet.fastaList:
                     count += 1
                     outfile = self.blastOutDir + self.blastFlavor + "_ncbiVirProt_" + str(count)
-                    self.blast1fasta(fasta,outfile,database,dbName)  #*** CONTROL
+                    self.blast1fasta(fasta,outfile,database,dbName) 
 
             if self.REFSEQ_PROTEIN_BLAST:
                 database = REFSEQ_PROTEIN_BLAST_HOME
@@ -598,7 +715,7 @@ class multiBlast(object):
                 for fasta in fastaSet.fastaList:
                     count += 1
                     outfile = self.blastOutDir + self.blastFlavor + "_refseqProtein_" + str(count)
-                    self.blast1fasta(fasta,outfile,database,dbName)  #*** CONTROL
+                    self.blast1fasta(fasta,outfile,database,dbName) 
 
             if self.PHANTOME_BLAST:
                 database = PHANTOME_BLAST_HOME
@@ -631,7 +748,7 @@ class multiBlast(object):
                 for fasta in fastaSet.fastaList:
                     count += 1
                     outfile = self.blastOutDir + self.blastFlavor + "_swissprot_" + str(count)
-                    self.blast1fasta(fasta,outfile,database,dbName)   #*** CONTROL
+                    self.blast1fasta(fasta,outfile,database,dbName)  
 
             if self.PHAGE_ENZYME_BLAST: 
                 database = PHAGE_ENZYME_BLAST_HOME
@@ -642,7 +759,7 @@ class multiBlast(object):
                 for fasta in fastaSet.fastaList:
                     count += 1
                     outfile = self.blastOutDir + self.blastFlavor + "_phageEnz_" + str(count)
-                    self.blast1fasta(fasta,outfile,database,dbName)   #*** CONTROL
+                    self.blast1fasta(fasta,outfile,database,dbName) 
 
             if self.PVOGS_BLAST:  
                 database = PVOGS_BLAST_HOME
@@ -670,7 +787,7 @@ class multiBlast(object):
                     count += 1 
                     countA = 0
                     for annot in fasta.annotationList:
-                        for pVOG in annot.pVOGlist:  # There may be multiple annotations to inspect
+                        for pVOG in annot.VOGlist:  # There may be multiple annotations to inspect
                             # Avoid redundancy in printing pVOG groups for this fasta; only once per pVOG ID that was a blast hit
                             if pVOG not in pvogPrintedList:
                                 pvogPrintedList.append(pVOG)  # Record this pVOG identifier as "done"
@@ -682,6 +799,110 @@ class multiBlast(object):
                                 outfilePVOG_h.write("%c%s\n%s\n" % ('>',fasta.header,fasta.sequence)) # write the current peptide fasta,
                                 self.writePVOGsequences2file(outfilePVOG_h,pVOGlines,pVOG)                  # followed by the pVOG group
                                 outfilePVOG_h.close()
+
+            if self.VOGS_BLAST:  #*** To be deprecated
+                database = VOGS_BLAST_HOME
+                dbName   = 'VOGs'
+                count = 0
+                if PHATE_PROGRESS == 'True':
+                    print("phate_blast says, Running VOGs blast:", database, dbName)
+                for fasta in fastaSet.fastaList:
+                    count += 1
+                    outfile = self.blastOutDir + self.blastFlavor + "_vog_" + str(count)
+                    self.blast1fasta(fasta,outfile,database,dbName)
+
+                if PHATE_PROGRESS == 'True':
+                    print("phate_blast says, Blasting completed.")
+                    print("phate_blast says, Collecting and saving VOG sequences corresponding to blast hit(s)")
+
+                # Next you want to create VOG fasta group files so user can do alignments
+                # You need only one "alignment" file per VOG group that the fasta hit (under blast cutoffs)
+                # Capture VOG.faa lines
+                VOGs_h = open(database,"r")
+                VOGlines = VOGs_h.read().splitlines()
+                count = 0; countA = 0
+                for fasta in fastaSet.fastaList:
+                    vogPrintedList = []  # keeps track of pVOGs that have already been printed for current fasta
+                    count += 1 
+                    countA = 0
+                    for annot in fasta.annotationList:
+                        for VOG in annot.VOGlist:  # There may be multiple annotations to inspect
+                            # Avoid redundancy in printing VOG groups for this fasta; only once per VOG ID that was a blast hit
+                            if VOG not in vogPrintedList:
+                                vogPrintedList.append(VOG)  # Record this VOG identifier as "done"
+                                # create dynamic file name
+                                countA += 1 
+                                outfileVOG = self.VOGsOutDir + "vogGroup_" + str(count) + '_' + str(countA) + '.faa' 
+                                # open file and write current fasta pluse each corresponding VOG fasta
+                                outfileVOG_h = open(outfileVOG,'w')
+                                outfileVOG_h.write("%c%s\n%s\n" % ('>',fasta.header,fasta.sequence)) # write the current peptide fasta,
+                                self.writeVOGsequences2file(outfileVOG_h,VOGlines,VOG)               # followed by the VOG group
+                                outfileVOG_h.close()
+
+            if self.VOG_PROTEIN_BLAST:  
+                database = VOG_PROTEIN_BLAST_HOME
+                dbName   = 'vogProtein'
+                count = 0
+                if PHATE_PROGRESS == 'True':
+                    print("phate_blast says, Running VOG Protein blast:", database, dbName)
+                for fasta in fastaSet.fastaList:
+                    count += 1
+                    outfile = self.blastOutDir + self.blastFlavor + "_vogProtein_" + str(count)
+                    self.blast1fasta(fasta,outfile,database,dbName)
+
+                if PHATE_PROGRESS == 'True':
+                    print("phate_blast says, Blasting completed.")
+                    print("phate_blast says, Collecting and saving VOG Protein sequences corresponding to blast hit(s)")
+
+                # Next you want to create VOG fasta group files so user can do alignments
+                # You need only one "alignment" file per VOG group that the fasta hit (under blast cutoffs)
+                # Capture VOG.faa lines
+                VOGs_h = open(database,"r")
+                VOGlines = VOGs_h.read().splitlines()
+                count = 0; countA = 0
+                for fasta in fastaSet.fastaList:
+                    vogPrintedList = []  # keeps track of VOGs that have already been printed for current fasta
+                    count += 1 
+                    countA = 0
+                    for annot in fasta.annotationList:
+                        for VOG in annot.VOGlist:  # There may be multiple annotations to inspect
+                            # Avoid redundancy in printing VOG groups for this fasta; only once per VOG ID that was a blast hit
+                            if VOG not in vogPrintedList:
+                                vogPrintedList.append(VOG)  # Record this VOG identifier as "done"
+                                # create dynamic file name
+                                countA += 1 
+                                outfileVOG = self.VOGsOutDir + "vogProtGroup_" + str(count) + '_' + str(countA) + '.faa' 
+                                # open file and write current fasta pluse each corresponding VOG fasta
+                                outfileVOG_h = open(outfileVOG,'w')
+                                outfileVOG_h.write("%c%s\n%s\n" % ('>',fasta.header,fasta.sequence)) # write the current peptide fasta,
+                                self.writeVOGsequences2file(outfileVOG_h,VOGlines,VOG)               # followed by the VOG group
+                                outfileVOG_h.close()
+
+            if self.CAZY_BLAST: 
+                database = CAZY_BLAST_HOME
+                dbName   = 'cazy'
+                count = 0
+                if PHATE_PROGRESS == 'True':
+                    print("phate_blast says, Running CAZy blast:", database, dbName)
+                for fasta in fastaSet.fastaList:
+                    count += 1
+                    outfile = self.blastOutDir + self.blastFlavor + "_cazy_" + str(count)
+                    self.blast1fasta(fasta,outfile,database,dbName) 
+                if PHATE_PROGRESS == 'True':
+                    print("phate_blast says, Blasting completed.")
+                    print("phate_blast says, Collecting and saving CAZy EC numbers and descriptions corresponding to blast hit(s)")
+
+            if self.CUSTOM_PROTEIN_BLAST: 
+                database = CUSTOM_PROTEIN_BLAST_HOME
+                dbName   = 'customProtein'
+                count = 0
+                if PHATE_PROGRESS == 'True':
+                    print("phate_blast says, Running Custom Protein blast:", database, dbName)
+                for fasta in fastaSet.fastaList:
+                    count += 1
+                    outfile = self.blastOutDir + self.blastFlavor + "_customProtein_" + str(count)
+                    self.blast1fasta(fasta,outfile,database,dbName) 
+
         if CLEAN_RAW_DATA == 'True':
             self.cleanBlastOutDir()
 
@@ -704,6 +925,28 @@ class multiBlast(object):
 
             elif GET_SEQ:
                 pVOGsequence = pVOGsequence + nextLine
+
+    #*** CHECK THIS
+    #*** This method is modeled after writePVOGsequences2file, pending data is structured same as pVOGs
+    def writeVOGsequences2file(self,FILE_H,lines,VOG):
+        VOGheader = ""; VOGsequence = ""; GET_SEQ = False
+        for i in range(0,len(lines)-1):
+            nextLine = lines[i]
+            match_header = re.search('>',nextLine)
+            match_VOG    = re.search(VOG,nextLine)
+
+            if match_header:   
+                if GET_SEQ:
+                    FILE_H.write("%s\n%s\n" % (VOGheader,VOGsequence))
+                    VOGheader = ""; VOGsequence = ""
+                    GET_SEQ = False
+
+                if match_VOG:
+                    VOGheader = nextLine
+                    GET_SEQ = True
+
+            elif GET_SEQ:
+                VOGsequence = VOGsequence + nextLine
 
     def cleanBlastOutDir(self):  # Remove temporary files from BLAST_OUT_DIR
         if PHATE_PROGRESS == 'True':
